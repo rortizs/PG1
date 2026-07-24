@@ -60,21 +60,21 @@ Chain strategy: stacked-to-main
 
 ### 3. Real NestJS transport
 
-- [ ] RED: Update `apps/api/tests/contract.test.mjs`/`smoke.test.mjs` to boot the real `app.listen()` and hit routes over HTTP instead of in-memory `handleApiRequest`.
-- [ ] GREEN: Add `@nestjs/core|common|platform-express`; wire `main.ts`, `app.module.ts`, `*.controller.ts` with decorators delegating to existing services (no logic rewrite).
-- [ ] TRIANGULATE: Confirm `upload-service.mjs`, `review-run-lifecycle.mjs` signatures unchanged; 13 `contract.test.mjs` cases still pass.
-- [ ] REFACTOR: Bind server to `localhost` only; centralize error-shape mapping.
-- [ ] Verify: `pnpm --dir apps/api test` green; manual `pnpm --dir apps/api start` + curl round trip.
-- [ ] Rollback: revert `main.ts`/module/controller decorators to pre-Nest stub.
+- [x] RED: Update `apps/api/tests/contract.test.mjs`/`smoke.test.mjs` to boot the real `app.listen()` and hit routes over HTTP instead of in-memory `handleApiRequest`.
+- [x] GREEN: Add `@nestjs/core|common|platform-express`; wire `main.ts`, `app.module.ts`, `*.controller.ts` with decorators delegating to existing services (no logic rewrite).
+- [x] TRIANGULATE: Confirm `upload-service.mjs`, `review-run-lifecycle.mjs` signatures unchanged; 13 `contract.test.mjs` cases still pass.
+- [x] REFACTOR: Bind server to `localhost` only; centralize error-shape mapping.
+- [x] Verify: `pnpm --dir apps/api test` green; manual `pnpm --dir apps/api start` + curl round trip.
+- [x] Rollback: revert `main.ts`/module/controller decorators to pre-Nest stub.
 
 ### 4. Angular upload scaffold
 
-- [ ] RED: Rewrite `apps/web/tests/smoke.test.mjs` to fail against the current placeholder (`Pg1AdminApp`/`features/review-dashboard`) — document this as a conscious, expected regression before scaffolding.
-- [ ] GREEN: Run real Angular CLI scaffold (standalone, signals, `provideHttpClient`); implement `/upload` route posting to `POST /api/v1/thesis-documents`.
-- [ ] TRIANGULATE: Cover valid-PDF, unsupported-type, and zero/multi-file submit scenarios per spec.
-- [ ] REFACTOR: Extract a typed `ThesisApiClient` service reused by Work Unit 8.
-- [ ] Verify: `pnpm --dir apps/web test` green on rewritten suite; other 36 repo tests stay green via `pnpm test`.
-- [ ] Rollback: `git revert` scaffold commit; restore prior placeholder + original smoke test.
+- [x] RED: Rewrite `apps/web/tests/smoke.test.mjs` to fail against the current placeholder (`Pg1AdminApp`/`features/review-dashboard`) — document this as a conscious, expected regression before scaffolding.
+- [x] GREEN: Run real Angular CLI scaffold (standalone, signals, `provideHttpClient`); implement `/upload` route posting to `POST /api/v1/thesis-documents`.
+- [x] TRIANGULATE: Cover valid-PDF, unsupported-type, and zero/multi-file submit scenarios per spec.
+- [x] REFACTOR: Extract a typed `ThesisApiClient` service reused by Work Unit 8.
+- [x] Verify: `pnpm --dir apps/web test` green on rewritten suite; other 36 repo tests stay green via `pnpm test`.
+- [x] Rollback: `git revert` scaffold commit; restore prior placeholder + original smoke test.
 
 ### 5. FastAPI extraction endpoint
 

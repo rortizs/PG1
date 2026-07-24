@@ -1,13 +1,15 @@
-import { ReviewRunsController } from "./review-runs/review-runs.controller";
-import { ThesisDocumentsController } from "./thesis-documents/thesis-documents.controller";
+import { Module } from '@nestjs/common';
+import { ReviewRunsController } from './review-runs/review-runs.controller.js';
+import { ThesisDocumentsController } from './thesis-documents/thesis-documents.controller.js';
 
 /**
- * NestJS-compatible module seam for the PG1 API contract slice.
+ * Real NestJS module wiring for the PG1 API contract slice.
  *
- * Real `@Module()` wiring is introduced when NestJS dependencies are added.
- * Until then, this keeps route ownership explicit and testable without a
- * framework generator.
+ * Controllers own route ownership and delegate request handling to the
+ * existing pure `handleApiRequest`/service logic — no product logic lives
+ * here.
  */
-export class Pg1ApiModule {
-	readonly controllers = [ThesisDocumentsController, ReviewRunsController];
-}
+@Module({
+  controllers: [ThesisDocumentsController, ReviewRunsController],
+})
+export class Pg1ApiModule {}

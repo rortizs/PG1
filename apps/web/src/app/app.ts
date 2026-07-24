@@ -1,9 +1,16 @@
+import { ChangeDetectionStrategy, Component } from '@angular/core';
+import { RouterOutlet } from '@angular/router';
+
 /**
- * Angular-compatible admin shell placeholder.
+ * Real Angular standalone root shell for the PG1 web app.
  *
- * Real Angular standalone components and routes will be added after this
- * scaffold slice. Initial feature scope: features/review-dashboard.
+ * Route content (upload page, results page) is rendered through
+ * `<router-outlet />`; see `app.routes.ts`.
  */
-export class Pg1AdminApp {
-  readonly featureRoot = 'features/review-dashboard';
-}
+@Component({
+  selector: 'app-root',
+  imports: [RouterOutlet],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: `<router-outlet />`,
+})
+export class App {}

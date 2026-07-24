@@ -1,3 +1,13 @@
 packages:
   - "apps/*"
   - "services/*"
+allowBuilds:
+  '@parcel/watcher': true
+  esbuild: true
+  lmdb: true
+  msgpackr-extract: true
+onlyBuiltDependencies:
+  - esbuild
+  - '@parcel/watcher'
+  - lmdb
+  - msgpackr-extract

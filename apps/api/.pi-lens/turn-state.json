@@ -1,0 +1,172 @@
+{
+  "files": {
+    "tests/contract.test.mjs": {
+      "modifiedRanges": [
+        {
+          "start": 76,
+          "end": 77
+        },
+        {
+          "start": 80,
+          "end": 80
+        },
+        {
+          "start": 87,
+          "end": 91
+        },
+        {
+          "start": 147,
+          "end": 167
+        }
+      ],
+      "importsChanged": false,
+      "lastEdit": "2026-06-01T21:23:26.903Z"
+    },
+    "src/app.module.ts": {
+      "modifiedRanges": [
+        {
+          "start": 1,
+          "end": 14
+        }
+      ],
+      "importsChanged": true,
+      "lastEdit": "2026-05-26T21:33:33.258Z"
+    },
+    "src/thesis-documents/thesis-documents.controller.ts": {
+      "modifiedRanges": [
+        {
+          "start": 1,
+          "end": 26
+        }
+      ],
+      "importsChanged": true,
+      "lastEdit": "2026-05-26T21:33:33.311Z"
+    },
+    "src/review-runs/review-runs.controller.ts": {
+      "modifiedRanges": [
+        {
+          "start": 1,
+          "end": 30
+        }
+      ],
+      "importsChanged": true,
+      "lastEdit": "2026-05-26T21:33:33.360Z"
+    },
+    "src/api-contract.mjs.d.ts": {
+      "modifiedRanges": [
+        {
+          "start": 1,
+          "end": 14
+        }
+      ],
+      "importsChanged": false,
+      "lastEdit": "2026-05-26T21:31:28.651Z"
+    },
+    "tests/schema-migration.test.mjs": {
+      "modifiedRanges": [
+        {
+          "start": 1,
+          "end": 121
+        }
+      ],
+      "importsChanged": true,
+      "lastEdit": "2026-05-27T20:53:22.478Z"
+    },
+    "tests/upload-storage.test.mjs": {
+      "modifiedRanges": [
+        {
+          "start": 1,
+          "end": 129
+        }
+      ],
+      "importsChanged": true,
+      "lastEdit": "2026-05-27T21:12:47.197Z"
+    },
+    "src/storage/object-storage.mjs": {
+      "modifiedRanges": [
+        {
+          "start": 1,
+          "end": 49
+        },
+        {
+          "start": 51,
+          "end": 51
+        }
+      ],
+      "importsChanged": false,
+      "lastEdit": "2026-05-27T21:12:59.246Z"
+    },
+    "src/thesis-documents/upload-service.mjs": {
+      "modifiedRanges": [
+        {
+          "start": 1,
+          "end": 120
+        }
+      ],
+      "importsChanged": true,
+      "lastEdit": "2026-05-27T21:13:17.219Z"
+    },
+    "src/api-contract.mjs": {
+      "modifiedRanges": [
+        {
+          "start": 1,
+          "end": 2
+        },
+        {
+          "start": 4,
+          "end": 5
+        },
+        {
+          "start": 14,
+          "end": 14
+        },
+        {
+          "start": 16,
+          "end": 16
+        },
+        {
+          "start": 22,
+          "end": 28
+        },
+        {
+          "start": 42,
+          "end": 42
+        },
+        {
+          "start": 45,
+          "end": 48
+        },
+        {
+          "start": 92,
+          "end": 106
+        }
+      ],
+      "importsChanged": true,
+      "lastEdit": "2026-06-01T21:24:14.635Z"
+    },
+    "tests/review-run-lifecycle.test.mjs": {
+      "modifiedRanges": [
+        {
+          "start": 1,
+          "end": 267
+        }
+      ],
+      "importsChanged": true,
+      "lastEdit": "2026-06-01T21:36:06.956Z"
+    },
+    "src/review-runs/review-run-lifecycle.mjs": {
+      "modifiedRanges": [
+        {
+          "start": 1,
+          "end": 212
+        }
+      ],
+      "importsChanged": true,
+      "lastEdit": "2026-06-01T21:36:07.169Z"
+    }
+  },
+  "turnCycles": 0,
+  "maxCycles": 3,
+  "lastUpdated": "2026-06-01T21:36:07.169Z",
+  "sessionId": "lens-mplje8sk-3bacb546"
+}

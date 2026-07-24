@@ -1,0 +1,9 @@
+[project]
+name = "pg1-document-ai-worker"
+version = "0.1.0"
+description = "Document and AI worker scaffold for PG1"
+requires-python = ">=3.11"
+dependencies = []
+
+[tool.pytest.ini_options]
+pythonpath = ["."]

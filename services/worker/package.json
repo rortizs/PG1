@@ -1,0 +1,7 @@
+{
+  "name": "@pg1/worker-smoke",
+  "private": true,
+  "scripts": {
+    "test": "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. python3 -m unittest discover -s tests -p 'test_*.py'"
+  }
+}

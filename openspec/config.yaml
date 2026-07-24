@@ -1,0 +1,59 @@
+version: 1
+project:
+  name: PG1
+  description: AI-assisted university thesis review platform focused on academic precision and evidence traceability.
+sdd:
+  execution_mode: auto
+  artifact_store:
+    openspec: true
+    engram: true
+  strict_tdd: true
+  phase_rules:
+    require_tests_before_implementation: true
+    red_green_refactor: true
+    max_review_lines: 400
+    pr_strategy: auto-forecast
+  test_runner:
+    command: "pnpm test"
+    placeholder: false
+    notes: "Runs root scaffold verification across apps/api, apps/web, and services/worker. Expand as component test suites mature."
+scope:
+  ingestion:
+    mode: one-to-one-upload
+    onedrive_integration: false
+  rag:
+    controlled_rag_first: true
+    agentic_rag_later: true
+architecture:
+  priorities:
+    - academic_precision
+    - evidence_traceability
+    - exact_page_and_chapter_references
+  stack_recommendation:
+    frontend:
+      preferred: "Angular + Ionic"
+      alternative: "Angular-only admin dashboard"
+      tradeoff_vs_react: "Angular offers stronger built-in structure for enterprise dashboards and team conventions; React can be faster for flexible UI iteration but usually needs more architectural decisions and libraries."
+    backend_api:
+      preferred: "NestJS + TypeScript"
+      role: "Primary orchestrator and REST API"
+    document_ai_worker:
+      preferred: "Python FastAPI"
+      role: "PDF/DOCX/OCR/NLP processing pipelines"
+      runtime_notes: "Async-first workers for I/O heavy document processing"
+    database:
+      preferred: "PostgreSQL + pgvector"
+      role: "Transactional data, findings, embeddings, audit trail"
+    queue:
+      preferred: "Redis + BullMQ"
+      later_option: "Temporal if workflow orchestration complexity grows"
+    storage:
+      preferred: "Local or S3-compatible object storage"
+      onedrive_in_scope: false
+    ai:
+      provider_model: "Provider-neutral LLM abstraction; OpenAI excluded from the recommended provider set"
+      recommended_providers:
+        - "Claude for academic reasoning, structured review, long-context synthesis, and evidence-aware agentic workflows"
+        - "DeepSeek for cost-efficient bulk drafting, classification, extraction assistance, and optional reasoning passes"
+        - "Groq for low-latency open-model inference, fast deterministic checks, and interactive review flows"
+      rollout: "Controlled RAG first, then constrained agentic RAG"

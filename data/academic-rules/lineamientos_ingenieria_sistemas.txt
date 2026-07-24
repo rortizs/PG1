@@ -1,0 +1,315 @@
+
+--- PAGE 1 ---
+MODELO DE LA PORTADA 
+en cartulina color (según muestra) 
+  
+UNIVERSIDAD MARIANO GÁLVEZ DE GUATEMALA 
+FACULTAD DE INGENIERÍA EN SISTEMAS DE  
+INFORMACIÓN 
+ 
+ 
+ 
+                                   
+ 
+ 
+ 
+COLOR EL TITULO DEL TRABAJO DE GRADUACIÓN  
+TAL Y COMO ESTAN EN LA ORDEN DE IMPRESIÓN 
+ 
+ 
+ 
+ 
+ 
+ 
+NOMBRE DEL GRADUANDO (A) 
+ 
+Fecha de orden de impresión (carta autorizada por su decano)  
+(Guatemala, mes y año) sin día 
+ 
+
+--- PAGE 2 ---
+ 
+UNIVERSIDAD MARIANO GÁLVEZ DE GUATEMALA 
+FACULTAD DE INGENIERÍA EN SISTEMAS DE 
+INFORMACIÓN 
+ 
+ 
+TITULO DEL TRABAJO DE GRADUACIÓN 
+ 
+  
+ 
+ 
+ 
+TRABAJO DE GRADUACIÓN PRESENTADO  
+POR: 
+NOMBRE DEL GRADUANDO (A) 
+ 
+PREVIO A OPTAR AL GRADO ACADÉMICO DE 
+LICENCIADO EN INGENIERÍA EN SISTEMAS DE  
+INFORMACIÓN Y CIENCIAS DE LA COMPUTACIÓN 
+ 
+Y TÍTULO PROFESIONAL DE  
+INGENIERO EN SISTEMAS DE INFORMACIÓN 
+Y CIENCIAS DE LA COMPUTACIÓN 
+ 
+ 
+Especificar su género 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Fecha de orden de impresión (carta autorizada por su decano)  
+(Guatemala, mes y año) sin día 
+ 
+--- PAGE 3 ---
+ 
+ 
+ 
+ 
+AUTORIDADES DE LA FACULTAD Y ASESOR DEL TRABAJO 
+DE GRADUACIÓN. 
+ 
+ 
+ 
+DECANO DE LA FACULTAD:         ING. JORGE ALBERTO ARIAS TOBAR 
+     
+ 
+SECRETARIO DE LA FACULTAD:  M.A. HUGO ADALBERTO HERNÁNDEZ 
+      SANTIZO 
+ 
+ 
+ASESOR:  completar datos 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+III 
+ 
+ 
+--- PAGE 4 ---
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+AGREGAR LA ORDEN DE IMPRESIÓN ESCANEADA Y 
+ENUMERAR   
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+IV 
+ 
+--- PAGE 5 ---
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+REGLAMENTO DE TESIS 
+ 
+Artículo 8°: RESPONSABILIDAD 
+ 
+Solamente el autor es responsable de los conceptos expresados en el 
+trabajo de tesis. Su aprobación en manera alguna implica 
+responsabilidad para la Universidad. 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+V 
+ 
+--- PAGE 6 ---
+INDICE 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+VI 
+--- PAGE 7 ---
+INTRODUCCIÓN O RESUMEN  
+ 
+ 
+ 
+ 
+ 
+ARTÍCULO 50º   PAGINACION DE LA TESIS: 
+Se le dará una numeraci ón continua, por medio de números arábigos a las 
+páginas del texto de la tesis, desde la primera de la introducción hasta la última de 
+la bibliografía.  El número se colocará centrado en el margen superior de la 
+página, con excepción de aquellas donde comi enzan los capítulos o secciones de 
+la tesis, que llevarán el número en el centro del margen inferior. 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+1 
+--- PAGE 8 ---
+(NO INCLUIRLO DENTRO DE LA TESIS) 
+REGLAMENTO DE TESIS 
+CAPÍTULO IV 
+ 
+PARTES PRELIMINARES DE LA TESIS 
+ 
+ 
+ARTÍCULO 30º FORMATO DE LA TESIS: 
+Las dimensiones externas del trabajo de tesis, incluyendo las cubiertas, serán de 
+diecisiete centímetros de ancho (17cm) por veinticinco (25cm) centímetros de 
+largo; salvo casos especiales. 
+ 
+ARTÍCULO 31º CUBIERTAS: 
+Las cubiertas de la tesis serán del color aprobado para cada Facultad.  La portada 
+tendrá la siguiente leyenda: en la parte superior UNIVERSIDAD MARIANO 
+GÁLVEZ DE GUATEMALA y el nombre de la Facultad y Escuela que 
+corresponden.  En el centro, a media tinta, el escudo de la Universidad en tamaño 
+de 11 centímetros de diámetro.  Sobre el escudo,  el título impreso de la tesis.  En 
+la parte inferior, el nombre del graduando, lugar, mes y año. 
+ 
+ARTÍCULO 32º   GUARDAS: 
+Son dos hojas en blanco que se colocarán una al principio y la otra al final, 
+después y antes de las cubiertas. 
+ 
+ARTÍCULO 33º HOJA DE PRESENTACION DE LA TESIS: 
+Tendrá los siguientes textos: en su parte superior “UNIVERSIDAD MARIANO 
+GÁLVEZ DE GUATEMALA”.  Seguido y en renglón aparte, el nombre de la 
+Facultad y Escuela que corresponden.  En el centro, el escudo de la Universidad 
+con las m ismas dimensiones del que aparece en la portada.  En la parte superior 
+del escudo y fuera de él, el título de la tesis. Sobre el escudo de la Universidad: 
+“Tesis presentada por (nombre del sustentante), previo a optar el grado académico 
+de licenciado y el (los) títulos (s) profesional (es) de (nombre de éstos), si se 
+otorgaren.  En su parte inferior: lugar, mes y año. 
+--- PAGE 9 ---
+ 
+ARTÍCULO 34º HOJA DE AUTORIDADES Y TRIBUNAL: 
+Contendrá el nombre del Decano y/o Director de la facultad y escuela (si fuere el 
+caso) y de los profesionales universitarios que practicaron el Examen de Tesis. 
+ 
+ARTÍCULO 35º   HOJA DE TRANSCRIPCIONES: 
+Tendrá las transcripciones de la resolución del Decano que autoriza la impresión 
+de la tesis y del texto del Artículo 9º del Reglamento de Tesis. 
+ 
+ARTÍCULO 36º   INDICE: 
+Contendrá la distribución temática y sucinta de la tesis, en forma tal, que su lectura 
+permita al lector formarse una idea precisa de lo que el trabajo es, o de lo que 
+contiene.  Indicará fundamentalmente: los títulos de las divisio nes y subdivisiones 
+y el número de página, escrito en el margen derecho, en las que aquellas 
+comienzan. 
+ 
+ARTÍCULO 37º NUMERACIÓN DE LAS PÁGINAS PRELIMINARES: 
+Las hojas de Autoridades y Tribunal Examinador, de transcripciones y las que 
+contienen el índice d e la tesis, se identificarán con números romanos pequeños, 
+en orden correlativo, que se colocarán centrados en el margen inferior de la 
+página.  Las guardas y la hoja de presentación de la tesis, no llevarán número, 
+pero se contarán para la numeración. 
+ 
+ 
+ 
+ARTÍCULO 50º   PAGINACION DE LA TESIS: 
+Se le dará una numeración continua, por medio de números arábigos a las 
+páginas del texto de la tesis, desde la primera de la introducción hasta la última de 
+la bibliografía.  El número se colocará centrado en el marg en superior de la 
+página, con excepción de aquellas donde comienzan los capítulos o secciones de 
+la tesis, que llevarán el número en el centro del margen inferior. 
+ 
+ 
+ 

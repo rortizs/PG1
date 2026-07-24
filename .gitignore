@@ -1,0 +1,11 @@
+# Local Pi runtime state
+.atl/
+
+# Dependencies and caches
+node_modules/
+__pycache__/
+.pytest_cache/
+
+# Local secrets
+.env
+.env.local

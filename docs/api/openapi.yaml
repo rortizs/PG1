@@ -1,0 +1,188 @@
+openapi: 3.1.0
+info:
+  title: PG1 Thesis Review API
+  version: 0.1.0
+  description: Contract baseline for MVP academic review resources. OneDrive is out of scope and OpenAI is not a recommended provider.
+servers:
+  - url: /
+paths:
+  /api/v1/thesis-documents:
+    post:
+      summary: Create a thesis document upload record
+      responses:
+        "201":
+          description: Contract-valid thesis document stub
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ThesisDocument"
+        "422":
+          $ref: "#/components/responses/StandardError"
+    get:
+      summary: List thesis documents
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PageSize"
+        - name: status
+          in: query
+          schema: { type: string }
+        - name: search
+          in: query
+          schema: { type: string }
+      responses:
+        "200":
+          description: Bounded thesis document list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaginatedThesisDocuments"
+        "422":
+          $ref: "#/components/responses/StandardError"
+  /api/v1/thesis-documents/{document_id}/review-runs:
+    post:
+      summary: Start a review run for a thesis document
+      parameters:
+        - $ref: "#/components/parameters/DocumentId"
+      responses:
+        "202":
+          description: Review run queued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReviewRun"
+        "404":
+          $ref: "#/components/responses/StandardError"
+  /api/v1/review-runs/{run_id}:
+    get:
+      summary: Get review run status
+      parameters:
+        - $ref: "#/components/parameters/RunId"
+      responses:
+        "200":
+          description: Review run status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReviewRun"
+        "404":
+          $ref: "#/components/responses/StandardError"
+  /api/v1/review-runs/{run_id}/findings:
+    get:
+      summary: List findings for a review run
+      parameters:
+        - $ref: "#/components/parameters/RunId"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PageSize"
+        - name: type
+          in: query
+          schema: { type: string }
+        - name: severity
+          in: query
+          schema: { type: string }
+      responses:
+        "200":
+          description: Bounded finding list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaginatedFindings"
+        "422":
+          $ref: "#/components/responses/StandardError"
+  /api/v1/review-runs/{run_id}/report-artifacts:
+    get:
+      summary: List report artifacts for a review run
+      parameters:
+        - $ref: "#/components/parameters/RunId"
+      responses:
+        "200":
+          description: Report artifacts for the run
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReportArtifactList"
+        "404":
+          $ref: "#/components/responses/StandardError"
+components:
+  parameters:
+    Page:
+      name: page
+      in: query
+      schema: { type: integer, minimum: 1, default: 1 }
+    PageSize:
+      name: page_size
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+    DocumentId:
+      name: document_id
+      in: path
+      required: true
+      schema: { type: string }
+    RunId:
+      name: run_id
+      in: path
+      required: true
+      schema: { type: string }
+  responses:
+    StandardError:
+      description: Standard error shape
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/StandardError"
+  schemas:
+    StandardError:
+      type: object
+      required: [error, message, details, request_id, timestamp]
+      properties:
+        error: { type: string }
+        message: { type: string }
+        details: { type: object }
+        request_id: { type: string }
+        timestamp: { type: string, format: date-time }
+    ThesisDocument:
+      type: object
+      required: [id, type, status, review_eligible]
+      properties:
+        id: { type: string }
+        type: { const: thesis_document }
+        status: { type: string }
+        review_eligible: { type: boolean }
+    ReviewRun:
+      type: object
+      required: [id, type, status, progress_stage]
+      properties:
+        id: { type: string }
+        type: { const: review_run }
+        thesis_document_id: { type: [string, "null"] }
+        status: { type: string }
+        progress_stage: { type: string }
+        status_url: { type: string }
+    PaginatedThesisDocuments:
+      allOf:
+        - $ref: "#/components/schemas/PaginatedResponse"
+    PaginatedFindings:
+      allOf:
+        - $ref: "#/components/schemas/PaginatedResponse"
+        - type: object
+          properties:
+            review_run_id: { type: string }
+    ReportArtifactList:
+      type: object
+      required: [review_run_id, status, items]
+      properties:
+        review_run_id: { type: string }
+        status: { type: string }
+        items:
+          type: array
+          items: { type: object }
+    PaginatedResponse:
+      type: object
+      required: [items, total, page, page_size, filters]
+      properties:
+        items:
+          type: array
+          items: { type: object }
+        total: { type: integer }
+        page: { type: integer }
+        page_size: { type: integer }
+        filters: { type: object }

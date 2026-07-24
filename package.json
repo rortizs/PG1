@@ -1,0 +1,9 @@
+{
+  "name": "pg1-thesis-review-platform",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node scripts/run-smoke-tests.mjs"
+  },
+  "packageManager": "pnpm@11.2.2"
+}

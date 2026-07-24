@@ -1,0 +1,685 @@
+
+--- PAGE 1 ---
+Universidad Mariano Gálvez de Guatemala 
+Facultad de Ingeniería en Sistemas de Información 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Guía de lineamientos y conceptos para                                     
+la elaboración de tesis  y trabajos de graduaciòn   
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Primera versión 
+Guatemala, agosto del 2,019. 
+--- PAGE 2 ---
+I - Lineamientos Generales:  
+1. El documento debe presentarse utilizando hojas de papel bond 60 gramos, tamaño carta 
+2. Utilizar en todo el documento, Letra Tipo Times New Román o Arial, 12 puntos,  
+3. Utilizar en títulos negrilla, sin subrayar y con tipo Times New Román o Arial, 12 puntos. 
+4. Las carátulas y páginas iniciales del documento, deben presentarse de acuerdo a ejemplos     
+    adjuntos, la numeración para estas páginas en números romanos con letra en minúscula,  
+    centrada en margen inferior. 
+5. Los párrafos deben estar estructurados con un tamaño entre ocho a diez líneas, entrazados   
+    sin usar subtemas o subtítulos. 
+6. Utilizar en el documento un interlineado de 1.5 puntos 
+7. Márgenes del documento: superior, inferior y derecho de 2.5, izquierdo de 3 centímetros. 
+8. La redacción debe realizarse de manera impersonal. 
+8. Evitar el uso de gerundios, adverbios de forma excesiva, términos coloquiales, ejemplo de  
+    ello, (ya que, puesto que, hoy por hoy, hoy en día, aquí, ahí, acá) entre otros, la repetición  
+    de palabras en un mismo párrafo sustituirla por sinónimos o de palabras rebuscadas en lugar   
+    de términos sencillos. 
+10. Evitar el uso excesivo de la voz pasiva, ejemplo de ello (ha sido observado, se ha contado,   
+      fue llevado), utilizar la voz activa, (se observó, se contó, se llevó) es más breve, directo y   
+      asertivo. 
+11. La numeración de las páginas del documento debe colocarse en el margen inferior de la  
+      página, centrado y sin guiones o palabras, las páginas preliminares identificarse con 
+números 
+       romanos, centrado y con minúsculas. 
+12. La numeración de las páginas del documento debe iniciarse a partir de la introducción. (1) 
+13. Sustituir él términos etcétera por, entre otros. 
+14. Al hacer referencia a alguna década, el año debe escribirse en forma completa. 
+15. No utilizar extranjerismos, a menos que esté se encuentre en una cita. 
+ 
+--- PAGE 3 ---
+16. No utilizar viñetas ni otras formas de subdivisión de párrafos. 
+17. Presentación de citas y referencias bibliográficas. Deben realizarse de acuerdo al   
+      Reglamento de Tesis de la Universidad Mariano Gálvez, está prohibido presentar trabajos  
+      de investigación que no cumplan con los lineamientos relacionados para evitar el plagio   
+      documental, se recomienda utilizar las Normas APA, 6ª. Edición. 
+18. Es necesario que las fuentes de información de internet, que sean utilizadas en el proceso  
+      de  investigación sean sitios comprobados, para poder verificar la calidad y veracidad de la  
+      misma. Se recomienda evitar copiar de forma textual datos de internet o de cualquier otra  
+      fuente, si no se hace la respectiva cita bibliográfica. Solo está permitido citar hasta un 20%    
+      de fuentes exploratorias (internet), el resto deberá corresponder a fuentes primarias. 
+NOTA: El estudiante deberá hacer uso de programas de plagio, para garantizar que en  
+              trabajo de investigación que desarrolla, se evita el plagio documental. 
+19. Es necesario el uso de programas de revisión ortográfica en todo el documento, antes de su  
+      presentación inicial para revisión, esto nos ayudará a mejorar la presentación del  
+      documento. 
+20. Grafica, Tabulares y Figuras, deben contener la información del nombre del grafico,  
+       tabular o figura, dimensionales que se representan, y referencia bibliográfica. 
+21. Todo el texto debe estar justificado 
+22. Usar tildes en Mayúsculas 
+23. Palabras en ingles deben ir en Cursiva 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+--- PAGE 4 ---
+ 
+ 
+ 
+II. Conceptos y Teoría de Soporte 
+Título del Trabajo de Investigación: 
+Este debe ser claro, preciso, coherente con el problema que se investiga. 
+ 
+Introducción: 
+a. Debe brindar una perspectiva general del trabajo, describir el problema, indicar la 
+importancia de la solución, los resultados, aportes y beneficios obtenidos y de la factibilidad o 
+no de su realización. Se debe incluir una breve descripción del contenido de los capítulos 
+desarrollados por el orden de su importancia. 
+ b.  Debe presentar de forma clara, una visión general del contenido del trabajo; realiza un 
+acercamiento al tema, indicándose el propósito y alcance de este. Considerar la estructura del 
+documento y brindar una breve explicación de cada uno de sus Marcos. Es importante 
+describir algunos antecedentes y por qué son fundamentales para el posterior desarrollo del 
+tema central.  c. La introducción permite captar la atención del lector por medio del 
+planteamiento del problema, en forma clara y atractiva, así como la descripción de los marcos 
+y temas que se utilizaron como base para el desarrollo del trabajo de investigación. Finalizarla 
+con aspectos relevantes incluidos en las conclusiones, recomendaciones, terminología técnica, 
+bibliográfica y anexo.   
+ 
+Marco Conceptual (Descripción del problema). 
+     Esta sección del trabajo tiene como principal función la de realizar el planteamiento del 
+problema que a investigar de forma clara.  
+     Se recomienda no colocar citas textuales en el marco conceptual, por ser una descripción 
+del autor sobre el problema. 
+ 
+Antecedentes:     
+     Presentación, análisis y discusión de resultados de investigaciones previas relacionadas con 
+el tema en estudio, tanto en Guatemala como en otros países, identificando los aportes 
+--- PAGE 5 ---
+prácticos o metodológicos de utilidad en la solución del problema que se plantea. Pueden 
+incluirse referencias de proyectos o experiencias en torno a la solución del problema que se 
+plantea. 
+     Utilizar las Normas APA para la elaboración de las citas bibliográficas. 
+     Para facilitar la redacción de los antecedentes, se debe tener presente que responden a las 
+preguntas ¿qué?, ¿cómo? y ¿para qué?. Los antecedentes respaldan la propuesta de 
+investigación, (Título de la Tesis). El contenido de los antecedentes debe desarrollarse entre 6 
+y 8 páginas. 
+  
+Descripción del Problema: 
+     Tiene como objetivo central el planteamiento del problema, mediante la descripción, 
+delimitación, formulación de la pregunta central y de las preguntas auxiliares. Debe 
+delimitarse el contexto en el cual acontece, describiendo las causas y consecuencias de su 
+ocurrencia. Al concretar el planteamiento del problema, debe estructurarse la pregunta central 
+en forma clara, precisa y breve. Algunos criterios para plantear un problema de investigación 
+son: 
+- El problema debe ser formulado como pregunta, claramente y sin ambigüedad, 
+ejemplos, ¿qué efecto?, ¿en qué condiciones?, ¿cuál es la probabilidad de?,¿cómo se 
+relaciona…con?. 
+- El planteamiento debe implicar la posibilidad de ser investigado empíricamente, es 
+decir, que sea factible observarse en la “realidad”.  
+- El planteamiento debe ser ético. 
+- Frecuentemente las preguntas de investigación se plantean en términos de ¿qué?, ¿por 
+qué? y ¿cómo?. Regularmente son los propios objetivos, pero ahora presentados en 
+forma de interrogantes. 
+- Se requiere evitar, las preguntas demasiado generales no conducen a una investigación 
+enfocada. 
+- Las preguntas de investigación orientan la investigación para encontrar respuestas 
+adecuadas, organizan y delimitan el proyecto y nos mantiene enfocados. No deben 
+incluir términos ambiguos ni abstractos. 
+ 
+--- PAGE 6 ---
+ 
+ 
+ 
+Objetivos: 
+     Con ellos establecemos que pretendemos lograr en lo particular con el desarrollo de la 
+investigación. Estos deben de expresarse con claridad y ser concretos, medibles, apropiados y 
+realistas es decir, susceptibles de alcanzarse. Son las guías del estudio y hay que tenerlos 
+presentes durante todo su desarrollo. Al redactarlos es habitual utilizar verbos y derivados del 
+tipo: describir, determinar, demostrar, examinar, especificar, analizar, estimar, comparar, 
+valorar, probar y relacionar respecto de los conceptos o variables incluidas. Los objetivos que 
+se especifiquen deben ser congruentes entre sí. 
+    El objetivo general debe ser acompañados de por lo menos tres objetivos específicos. 
+ 
+Justificación: 
+     Implica exponer las razones por las cuales es importante o necesario llevar a cabo la 
+investigación, (el para qué del estudio) y los beneficios que se derivarán de él. La mayoría de 
+investigaciones se ejecutan con un propósito definido, y este tiene que ser lo suficientemente 
+significativo para que se justifique su realización. 
+ 
+Algunos criterios a considerar para evaluar la importancia de una investigación son: 
+a. Valor teórico o de conocimiento, es decir con la investigación, ¿se llenará algún vacío de    
+     conocimiento?, ¿ la información que se obtenga puede servir para revisar, desarrollar, 
+apoyar  o probar una teoría? 
+b. Conveniencia, ¿Qué tan útil es la investigación?, esto es, ¿para qué sirve?. 
+c. Relevancia social, ¿Cuál es su trascendencia para la sociedad?, ¿quiénes y cuántos se       
+    beneficiarán con los resultados de la investigación?, en resumen ¿qué alcance o proyección    
+     social tiene?. 
+ d. Utilidad metodológica. ¿El estudio puede contribuir a crear nuevos métodos y técnicas de  
+      investigación? 
+  
+Delimitación: 
+--- PAGE 7 ---
+     Indicar los siguientes ámbitos de investigación: geográfico, institucional, personal, 
+temporal y temático, describir en forma global o integral, para formar un solo párrafo. Fijar 
+los límites de investigación, ubicándose o circunscribiéndose en tiempo y espacio. 
+Alcances de la investigación: 
+     
+a. Exploratorio, los estudios exploratorios sirven para preparar el terreno y generalmente 
+anteceden a investigaciones con alcances, descriptivos, correlacionales o explicativos. Los 
+estudios exploratorios se llevan a cabo cuando el propósito es estudiar fenómenos o problemas 
+de investigación nuevos o poco estudiados, sobre el cual se tienen muchas dudas o no se ha 
+abordado antes. 
+     Los estudios exploratorios sirven para obtener información sobre la posibilidad de llevar a 
+cabo una investigación más completa y profunda respecto de un contexto particular, estas 
+investigaciones resultan comunes en las ciencias y el mundo profesional. 
+b. Descriptivo, comúnmente son la base de investigaciones correlacionales. Tienen como 
+finalidad especificar propiedades y características de conceptos, fenómenos, variables o 
+hechos en un contexto determinado. En un estudio descriptivo el investigador selecciona una 
+serie de cuestiones (denominadas variables) y después recaba información sobre cada una de 
+ellas, para así representar lo que se investiga (describirlo o caracterizarlo), un censo es un 
+ejemplo de ello.  
+c. Correlacional, estos generan información para llevar a cabo estudios explicativos. Este tipo 
+de estudios tiene como finalidad conocer la relación o grado de asociación que existe entre dos 
+o más conceptos, categorías o variables en un contexto, miden las variables y su relación en 
+términos estadísticos. 
+     La utilidad principal de los estudios correlacionales es saber cómo se puede comportar un 
+concepto o variable al conocer el comportamiento de otras variables vinculadas. 
+d. Explicativo, generan comprensión del problema y resultan más concluyentes. Los estudios 
+explicativos van más allá de la descripción de fenómenos, conceptos o variables o del 
+establecimiento de relaciones entre estas; están dirigidos a responder por las causas de los 
+eventos y fenómenos de cualquier índole (naturales, sociales, psicológicos, de salud, etc.). 
+Como su nombre lo indica, su interés se centra en explicar por qué ocurre un fenómeno y en 
+qué condiciones se manifiesta, o por qué se relacionan dos o más variables. 
+--- PAGE 8 ---
+ 
+ 
+ 
+Limites: 
+     Describir cuáles son las barreras, debilidades y obstáculos que imposibilitaron al 
+investigador, desarrollar de forma satisfactoria la investigación. 
+ 
+Marco Teórico: 
+     Implica analizar y exponer de una manera organizada las teorías, investigaciones previas y 
+los antecedentes en general que se consideren válidos y adecuados para contextualizar y 
+orientar tu estudio. El marco teórico señala cómo encaja nuestra investigación en el conjunto 
+de lo que se conoce sobre un fenómeno o problema estudiado. 
+     Construir el marco teórico no significa solo reunir información, sino también ligarla e 
+interpretarla, porque las partes que lo integren deben estar entrelazadas, no deben brincar de 
+una idea a otra. La redacción del marco teórico no debe incluir tus opiniones sobre el 
+problema de investigación, debes limitarte o centrarte en exponer, integrar, analizar y 
+comentar los resultados de otros estudios previos vinculándolos siempre con tu planteamiento. 
+En cada página debe haber citas o referencias, cuando en una página no están presentes, 
+normalmente indica que se trata de tu punto de vista, contenido plagiado, o rollo. 
+     Incluye las leyes, teorías y principios los cuales fundamentan el tema de investigación que 
+se vincula con la problemática identificada. Los temas incluidos deben ser vinculantes con el 
+tema de la tesis, es decir no puede estar constituido por una o dos palabras, son ideas concretas 
+que orientan la investigación, el contenido debe incluir como mínimo 25 páginas. 
+     El estudiante, en el proceso de estructurar el marco teórico, puede hacer uso de 
+aplicaciones anti plagio, para verificar el porcentaje de plagio que puede tener el documento 
+elaborado. 
+ 
+IMPORTANTE:  
+Se recomienda, si consulta internet, no baje o utilice la información de forma textual en 
+ninguna parte de la tesis, a menos que sea una breve cita, esto puede provocar a anulación del 
+tema autorizado y, por ende, el trabajo presentado. 
+--- PAGE 9 ---
+ 
+ 
+ 
+Marco Metodológico: 
+Enfoque:  
+     Consiste en establecer o detallar la ruta o camino elegido para estudiar el tema, fenómeno o 
+planteamiento que hayas elegido en tu trabajo de tesis. Estas rutas o caminos de investigación 
+han sido establecidas por las comunidades científicas, identificadas como cuantitativa, 
+cualitativa y mixta cada una con sus particularidades. Se recomienda profundizar sobre los 
+tipos de rutas de investigación, una selección adecuada de enfoque o ruta de investigación a 
+utilizar. 
+ 
+Diseño de la investigación: (Para el caso de un Enfoque Cuantitativo) 
+     Es establecer un plan o estrategia que se desarrolla para obtener la información (datos) 
+requeridos en una investigación con el fin último de responder satisfactoriamente el 
+planteamiento del problema. 
+     Delimitar el diseño de investigación que estaremos utilizando, implica que se concrete el 
+plan o estrategia concebida para obtener la información que se desea con el propósito de 
+responder al planteamiento del problema, a las preguntas de investigación y además de 
+cumplir con los objetivos que te fijaste. 
+ 
+Tipos de Diseños Cuantitativos: 
+a. Experimentales:  1. Preexperimentales.   2. Experimentales.   3. Cuasiexperimentales 
+b. No Experimentales:  1. Transversales.    2. Longitudinales. 
+ 
+Investigación experimental: 
+     Situación de control en la cual se manipulan, de manera intencional, una o más variables 
+independientes (causas) para analizar las consecuencias de tal manipulación sobre una o más 
+variables dependientes (efectos). 
+ 
+Investigación No experimental: 
+--- PAGE 10 ---
+     Es la investigación que se realiza sin manipular deliberadamente variables, lo que se 
+efectúa es observar o medir fenómeno y variables tal como se dan en su contexto natural, para 
+analizarse. 
+ 
+Viabilidad o Factibilidad: 
+     Es necesario determinar si tenemos los conocimientos y competencias necesarias, la 
+disponibilidad de tiempo, recursos financieros, humanos, materiales, tecnológicos, acceso a la 
+información, permiso, equipos, infraestructura entre otros. Cuantificar inversiones necesarias 
+y especificar fuentes de financiamiento. Debemos cuestionarnos si tenemos de manera realista 
+acceso a los casos del estudio y a la información pertinente. 
+     Antes de iniciar la ruta de la investigación debemos visualizar los obstáculos que 
+tendremos y si podemos removerlos para continuar nuestro camino, es esencial considerar el 
+tiempo de ejecución pues investigaciones que demoran más allá de lo previsto pueden no ser 
+útiles cuando se concluyen, sea porque los resultados ya no se aplican, porque han sido 
+superados por otros estudios o porque el contexto cambio. La oportunidad y el cumplimiento 
+de las especificaciones son esenciales. 
+ 
+Hipótesis: 
+     Las hipótesis son explicaciones tentativas del fenómeno o problema investigado 
+formuladas como proposiciones o afirmaciones y constituyen las guías de un estudio, 
+regularmente relacionan variables o pronostican algo. Indican lo que tratamos de probar, son 
+respuestas provisionales a las preguntas de investigación que habrás de confirmar o no al 
+realizar tu estudio.  
+     Si el alcance del estudio es exploratorio no se formulan hipótesis, para el caso de estudios 
+descriptivos, solamente se plantean cuando se pronostica un valor, en estudios con alcance 
+correlacional se formulan tesis correlacionales y para el caso de los explicativos o causal, se 
+formulan hipótesis de tipo causal. 
+     Las hipótesis vinculan o pronostican variables, recordemos que una variable es una 
+propiedad o concepto que puede variar y cuya fluctuación es susceptible de medirse u 
+observarse, esto significa que puede adquirir diferentes valores que pueden ser registrados por 
+un instrumento de medición, ejemplos de variables son: edad, género, depresión, liderazgo, 
+--- PAGE 11 ---
+exposición a un programa televisivo, venta de un producto, preferencia a una red social, 
+presión arterial, dosis diaria administrada de un medicamente, satisfacción laboral, entre otras. 
+  
+¿Qué características deben tener las hipótesis? 
+ 
+1. Referirse a una situación real, es decir las hipótesis únicamente se puede someter a prueba 
+en    
+    un contexto específico y definido (tiempo y lugar, así como con casos concretos). 
+2. Las variables o términos de la hipótesis deben ser lo más concretos, entendibles y precisos 
+que   
+    sea posible. Términos vagos o confusos no tienen cabida en una hipótesis. 
+3. Debe de poder medirse, las hipótesis científicas, al igual que los objetivos y preguntas de  
+    investigación, no incluyen juicios morales ni cuestiones que no podamos medir. 
+4. La relación propuesta entre variables debe ser clara, lógica y creíble o posible. Es   
+    indispensable que se comprenda la forma en que se vinculan las variables y esta relación no  
+    puede ser ilógica. 
+ 
+Tipos de Hipótesis:  
+a. De Investigación, b. Nulas, c. Alternativas, d. Estadísticas. 
+ 
+Variables independientes y dependientes: 
+     La variable independiente es la que se considera como supuesta causa en una relación 
+entre variables, es la condición antecedente, y al efecto provocado por dicha causa se le 
+denomina variable dependiente (consecuente). 
+     Se pueden incluir en un estudio dos o más variables independientes y dependientes.    
+     Cuando en realidad existe una relación causal entre variables, al variar intencionadamente 
+la variable independiente, la variable dependiente presentara un cambio.  
+     En el ámbito de un experimento para que una variable sea considerada independiente debe 
+cumplir tres requisitos: 1. Que anteceda a la dependiente, 2. Que varíe o sea manipulada,       
+3. Que esta variación pueda controlarse. 
+ 
+--- PAGE 12 ---
+ 
+ 
+ 
+Población: 
+ 
+     Es el conjunto de todos los casos o elementos que concuerdan con una serie de 
+especificaciones. Una deficiencia que se presenta en algunos trabajos de investigación es que 
+no describen lo suficiente las características de la población o consideran que la muestra la 
+representa de manera automática. Por ello, es preferible establecer tales características con 
+claridad, con la finalidad de delimitar cuales serán los parámetros muestrales. La calidad de un 
+trabajo investigativo estriba en delimitar claramente la población con base en el planteamiento 
+del problema. 
+ 
+Muestra: 
+ 
+     En la ruta cuantitativa, una muestra es un subgrupo de la población o universo que te 
+interesa, sobre la cual se recolectarán los datos pertinentes, y deberé ser representativa de 
+dicha población (de manera probabilística, para que puedas generalizar los resultados 
+encontrados en la muestra a la población). El universo o población es definido o, al menos 
+perfilado desde el planteamiento del problema. La población y la unidad de muestreo deben 
+ser consistentes con tus objetivos y preguntas de investigación. Algunos errores que solemos 
+cometer se encuentran en cuestiones relativas a qué o quienes van a ser medidos. En la 
+realidad, pocas veces es posible medir a toda la población, por lo que obtenemos o 
+seleccionamos una muestra y, desde luego, se pretende que este subconjunto sea un reflejo fiel 
+del conjunto de la población. 
+ 
+Tipos de muestra en función de la estrategia de muestreo utilizada: 
+1. Muestras probabilísticas, en este tipo todas la unidades, casos o elementos de la población  
+    tienen al inicio la misma posibilidad de ser escogidos para conformar la muestra y se   
+    obtienen definiendo características de la población y el tamaño adecuado de la muestra y  
+    por medio de una selección aleatoria de las unidades de muestreo. 
+--- PAGE 13 ---
+2. Muestras no probabilísticas, la elección de las unidades no depende de la probabilidad, sino   
+    de las razones relacionadas con las características y contexto de la investigación, depende   
+    del proceso de toma de decisiones de un investigador o grupo de investigadores. 
+ 
+Cálculo del tamaño de la muestra: 
+     Cuando se determina una muestra probabilística, tienes que preguntarte, dado que una 
+población es de N tamaño, ¿Cuál es el número de unidades o casos (personas, organizaciones, 
+objetos, etc.) que necesito para conformar una muestra (n) que me asegure un determinado 
+error máximo aceptable y un nivel de confianza?. Comúnmente, hay dos niveles de error, 5% 
+y 1%, y de confianza de 95% y 99% utilizados. La respuesta a esta pregunta busca encontrar 
+una muestra que sea representativa del universo o población con cierta posibilidad de error y 
+nivel confianza. 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+III.  Descripción de la Estructura del Trabajo de Investigación 
+ 
+1. Descripción de Requerimientos internos: 
+ 
+- Carátula Exterior  
+     Esta debe presentarse observando ejemplo adjunto. (Escudo de Universidad 11 cm. 
+diámetro) 
+- Carátula Interior 
+--- PAGE 14 ---
+     Esta debe presentarse observando ejemplo adjunto. (Escudo de Universidad 11 cm. 
+diámetro) 
+- Hoja iii   
+AUTORIDADES DE LA FACULTAD Y ASESOR DEL TRABAJO DE 
+GRADUACION.  Esta debe presentarse observando ejemplo adjunto. 
+- Hoja iv 
+            AUTORIZACION PARA LA IMPRESIÓN DE TRABAJO DE GRADUACION.      
+            Incluir hoja como se muestra en ejemplo adjunto. 
+- Hoja v 
+            REGLAMENTO DEL TRABAJO DE GRADUACION. 
+ 
+            Esta debe presentarse observando ejemplo adjunto. 
+- Hoja vi 
+INDICE 
+            Este debe presentarse siguiendo la estructura del ejemplo adjunto. 
+  
+NOTA: el índice debe apegarse al contenido de la investigación realizada. La hojas necesarias 
+para su detalle deben numerarse de acuerdo al número romano correlativo siguiente. 
+- Hoja *  
+     INDICE DE TABLAS. 
+- Hoja * 
+     INDICE DE FIGURAS. 
+     *(correlativo romano siguiente, esta puede extenderse de acuerdo a la amplitud del tema) 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+--- PAGE 15 ---
+• Ejemplo de Portada 
+UNIVERSIDAD MARIANO GÁLVEZ DE GUATEMALA 
+FACULTAD DE INGENIERÍA EN SISTEMAS DE INFORMACIÓN 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+NOMBRE APROBADO PARA LA TESIS   
+(Se requiere no utilizar palabras en inglés, en el nombre aprobado) 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+NOTA: Utilizar letra Arial: 12Puntos, Negrilla. 
+ 
+ 
+ 
+NOMBRE DEL ALUMNO 
+GUATEMALA, MES  20_ _. 
+--- PAGE 16 ---
+• Ejemplo de Contraportada 
+UNIVERSIDAD MARIANO GÁLVEZ DE GUATEMALA 
+FACULTAD DE INGENIERÍA EN SISTEMAS DE INFORMACIÓN 
+ 
+ 
+NOMBRE APROBADO PARA LA TESIS,  
+(Se requiere no utilizar palabras en inglés, en el nombre aprobado) 
+ 
+ 
+ 
+TRABAJO DE GRADUACIÓN 
+PRESENTADO POR: 
+--- NOMBRE DEL ALUMNO --- 
+PREVIO A OPTAR AL GRADO ACADÉMICO DE 
+LICENCIADO EN INGENIERÍA EN SISTEMAS DE  
+INFORMACIÒN Y CIENCIAS DE LA COMPUTACIÒN 
+Y  
+EL TITULO PROFESIONAL DE  
+INGENIERO EN SISTEMAS DE INFORMACIÓN Y 
+CIENCIAS DE LA COMPUTACIÓN. 
+ 
+ 
+NOTA: Utilizar letra Arial: 12Puntos, Negrilla. 
+ 
+ 
+ 
+GUATEMALA, MES 20_ _. 
+ 
+--- PAGE 17 ---
+AUTORIDADES DE LA FACULTAD Y ASESOR  
+DEL TRABAJO DE GRADUACIÓN.   
+ 
+ 
+ 
+ 
+ 
+ 
+ DECANO DE LA FACULTAD: ING. JORGE ALBERTO ARIAS TOBAR. 
+ 
+SECRETARIO DE LA FACULTAD: ING. HUGO ADALBERTO HERNÁNDEZ 
+SANTIZO.  
+ 
+ASESOR: NOMBRE DE SU CATEDRATICO. 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+iii 
+--- PAGE 18 ---
+ AUTORIZACIÓN PARA LA IMPRESIÓN DE TRABAJO DE GRADUACIÓN. 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+iv 
+--- PAGE 19 ---
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+REGLAMENTO DEL TRABAJO DE GRADUACIÓN 
+Artículo 8: RESPONSABILIDAD 
+ 
+“Solamente el autor es responsable de los conceptos expresados en el trabajo 
+de tesis. Su aprobación en manera alguna implica responsabilidad para la 
+Universidad.” 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+V 
+--- PAGE 20 ---
+• EL ÌNDICE DEBE SER AUTOMATICO Y DEBE IR EN CASCADA SEGÚN 
+LOS NIVELES DE TITULOS  
+ÌNDICE 
+INTRODUCCÒN……………………………….………………………………………1 
+CAPÌTULO 1 – MARCO CONCEPTUAL……………………………………………….x 
+1.1 Antecedentes…………………………………………………………………………… y 
+1.2 Descripción del problema…..………………………………………………………….z 
+1.2.1 Preguntas de investigación….……………………………………………………. 
+1.3 Justificación……………………………………………………………………………... 
+1.4 Objetivos …..…………………………………………………………………………… 
+      1.4.1 Objetivo General …………………………………………………………………. 
+      1.4.2 Objetivos Específicos……... 
+……………………………………………………….. 
+1.5 Alcance………. ……………………………………………………………………… 
+1.6 Limitaciones…… ……………………………………………………………………. 
+CAPÌTULO 2 – MARCO TEORICO…………………………………………………… 
+2.1 Conceptos y Elementos de ……………………………………………………………… 
+2.2 Factores Internos y Externos…………………………………………………………… 
+2.3 Indicadores 
+Aplicables……………………………………………………………………… 
+2.4 Teoría del comportamiento 
+de………………………………………………………………. 
+2.5. Metodología para la 
+medición……………………………………………………………… 
+CAPÌTULO 3 – MARCO METODOLOGICO …………………………………………… 
+3.1 Ruta de Investigación ………………………………………………………………… 
+3.2 Tipo de Investigación……………………………………………………………………. 
+3.3 Análisis de Factibilidad.………………………………………………………………… 
+--- PAGE 21 ---
+      3.3.1 Factibilidad Económica…………………………………………………………. 
+      3.3.2 Factibilidad Operativa……………………………………………………………… 
+      3.3.2 Factibilidad 
+Tecnológica……………………………………………………………… 
+vi 
+      3.3.3 Factibilidad Cognocitiva ………………………………. 
+…………………….…….. 
+      3.3.4 Factibilidad (otros 
+criterios)……………………………………………………..….. 
+3.3 Hipótesis……………………………………………………………………………….…..  
+      3.3.1 Variables 
+Independientes………….…………………………………………………  
+      3.3.2 Variables 
+Dependientes………………………………………………………………  
+3.4 Definición de la población y tamaño de la 
+muestra………………………………………… 
+      3.4.1 Tamaño de la Población………….. 
+…………………………………………………. 
+      3.4.2 Calculo del tamaño de la 
+Muestra…………………………….……………………… 
+      3.4.3 Instrumento 
+…………………….…………………………………………………… 
+      3.4.4 Recolección de Datos 
+….……………………………………………………………. 
+3.5 Interpretación de Resultados……………… 
+………………………………………………  
+--- PAGE 22 ---
+     3.5.1 Gráficos Y Tabulares 
+………………………………………………………………… 
+3.6 Recursos Utilizados. 
+3.7 Cronograma 
+CAPITULO 4 – ANALISIS Y DESARROLLO DE APLICACION 
+4.1 Descripción del Proyecto ……………………………………………………. 
+  
+4.2 Diagramas UML 
+      4.2.1 Diagramas de Casos de Uso, (Análisis del diagrama general y su 
+explicación,   
+               adicional análisis de casos específicos y su explicación) 
+       4.2.2 Diagrama de Actividades, (Análisis del diagrama general y su explicación) 
+       4.2.3 Diagrama de Secuencias. (Análisis del diagrama general y su explicación).  
+ 
+       4.2.4 Diagrama de Componentes, (Análisis del diagrama general y su 
+explicación). 
+       4.2.5 Diagrama de Objetos. (Análisis del diagrama general y su explicación). 
+       4.2.6 Diagrama de Clases, (Análisis del diagrama general y su explicación). 
+       4.2.7 Diagrama de Entidad/Relación, (Análisis del diagrama general y su 
+explicación). 
+    4.3 Entidad Relación 
+     4.4 Diagramas de infraestructura 
+--- PAGE 23 ---
+      4.6 Diseños de pantalla  
+       4.7 Pruebas 
+ 
+Requerimientos o requisito 
+Análisis de requerimientos 
+Diseño proyectos 
+   Diagramas  
+    ER 
+Desarrollo 
+    Códificación 
+    Pruebas unitarias 
+    Pruebas integrales (QA) 
+    Pruebas de usuario (aceptacipon) 
+Implementación 
+         
+CAPITULO 5  
+ 
+CONCLUSIONES………………………………………………(Mínimo 4 conclusiones) 
+RECOMENDACIONES ………………………………………. (Mínimo 4 
+recomendaciones) 
+TERMINOLOGIA TECNICA 
+--- PAGE 24 ---
+BIBLIOGRAFIA 
+ANEXOS 

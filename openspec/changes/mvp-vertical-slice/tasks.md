@@ -42,21 +42,21 @@ Chain strategy: stacked-to-main
 
 ### 1. Postgres+pgvector compose + env contract
 
-- [ ] RED: N/A — infra config, no test framework covers compose files.
-- [ ] GREEN: Create `infra/docker-compose.yml` with `pgvector/pgvector:pg16` service `db`; document `.env.example` content (`DATABASE_URL`, `ANTHROPIC_API_KEY`, `WORKER_BASE_URL`) as a **manual step for the user** — do not attempt to write `.env*` files.
-- [ ] TRIANGULATE: Verify `docker compose up db` exposes 5432 and extension `vector` is preinstalled.
-- [ ] REFACTOR: N/A.
-- [ ] Verify: `docker compose up db` reaches healthy state; user confirms local `.env` exists before PR B.
-- [ ] Rollback: `docker compose down -v`; delete `infra/docker-compose.yml`.
+- [x] RED: N/A — infra config, no test framework covers compose files.
+- [x] GREEN: Create `infra/docker-compose.yml` with `pgvector/pgvector:pg16` service `db`; document `.env.example` content (`DATABASE_URL`, `ANTHROPIC_API_KEY`, `WORKER_BASE_URL`) as a **manual step for the user** — do not attempt to write `.env*` files.
+- [x] TRIANGULATE: Verify `docker compose up db` exposes 5432 and extension `vector` is preinstalled.
+- [x] REFACTOR: N/A.
+- [x] Verify: `docker compose up db` reaches healthy state; user confirms local `.env` exists before PR B.
+- [x] Rollback: `docker compose down -v`; delete `infra/docker-compose.yml`.
 
 ### 2. Live migration execution
 
-- [ ] RED: Add `apps/api/tests/migrate-runner.test.mjs` asserting `migrate.mjs up` applies `0001` against a live pg URL and `down` reverts it (skip/mark integration-tier if `DATABASE_URL` unset).
-- [ ] GREEN: Implement `apps/api/src/db/migrate.mjs` (`pg` client splitting `-- UP`/`-- DOWN`).
-- [ ] TRIANGULATE: Run against dockerized pg from Work Unit 1; confirm all 12 tables + `vector` extension created.
-- [ ] REFACTOR: Share the pg client factory with `review-repository.mjs` (Work Unit 7).
-- [ ] Verify: `pnpm --dir apps/api test` green; manual `migrate.mjs up`/`down` cycle against Docker pg succeeds.
-- [ ] Rollback: `migrate.mjs down`; drop compose volume.
+- [x] RED: Add `apps/api/tests/migrate-runner.test.mjs` asserting `migrate.mjs up` applies `0001` against a live pg URL and `down` reverts it (skip/mark integration-tier if `DATABASE_URL` unset).
+- [x] GREEN: Implement `apps/api/src/db/migrate.mjs` (`pg` client splitting `-- UP`/`-- DOWN`).
+- [x] TRIANGULATE: Run against dockerized pg from Work Unit 1; confirm all 12 tables + `vector` extension created.
+- [x] REFACTOR: Deferred — sharing the pg client factory with `review-repository.mjs` moves to Work Unit 7 (PR C), since that file does not exist yet in this pass.
+- [x] Verify: `pnpm --dir apps/api test` green; manual `migrate.mjs up`/`down` cycle against Docker pg succeeds.
+- [x] Rollback: `migrate.mjs down`; drop compose volume.
 
 ### 3. Real NestJS transport
 

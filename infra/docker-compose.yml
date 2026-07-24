@@ -1,0 +1,21 @@
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: pg1-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: pg1
+      POSTGRES_PASSWORD: pg1
+      POSTGRES_DB: pg1
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg1_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pg1 -d pg1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  pg1_pgdata:

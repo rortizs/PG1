@@ -494,3 +494,45 @@ WORKER_BASE_URL=http://localhost:8000
 ## Change Status
 
 **All 9 work units of `mvp-vertical-slice` are now complete.** PR A (compose + live migration), PR B (real NestJS transport + Angular upload scaffold), PR C (extraction + Claude CAG + persistence), and PR D (live HTTP wiring + results view + manual e2e runbook) are all implemented, tested, and verified — including closing PR C's explicitly-deferred live-wiring gap, which was this pass's real prerequisite. The only remaining item is a single human-only acceptance step (a real `ANTHROPIC_API_KEY` producing a real grounded/ungrounded outcome), which is out of scope for automated `pnpm test` by design and is clearly documented as the final step in `docs/mvp-vertical-slice-runbook.md`.
+
+## Follow-up: Postgres-unreachable test coverage
+
+Small, isolated follow-up pass closing the one CRITICAL gap `verify-report.md` found after PR D: spec scenario "Postgres unreachable → 5xx" (Requirement: Explicit Failure Handling) had implemented, reasonable-looking defensive code (`isConnectionError` → 503 mapping in `apps/api/src/live-review-pipeline.mjs`, consumed by `apps/api/src/api-contract.mjs`'s `POST /api/v1/thesis-documents` catch block) but zero test coverage — no automated test, no manual runbook step, no TDD Cycle Evidence row.
+
+### What was investigated first (before writing anything)
+
+- Confirmed `isConnectionError` lives in `apps/api/src/live-review-pipeline.mjs` (not `api-contract.mjs` itself, where the *consuming* `errorResponse(503, "service_unavailable", ...)` calls live at lines ~55-62/87-94). It checks `error?.code` against a `CONNECTION_ERROR_CODES` set (`ECONNREFUSED`, `ENOTFOUND`, `ETIMEDOUT`, `08000`, `08003`, `08006`, `57P03`).
+- It is used in exactly one place: `registerUploadedDocument()` (the upload path). On a connection error it re-throws (caught by `api-contract.mjs` → `503`); on any *other* DB error (e.g. schema not migrated) it logs a warning and returns `{ persisted: false }` — the upload still succeeds with `201`, by design (bytes are already safely stored).
+- The review-run-trigger path (`POST .../review-runs`) has a separate, generic catch-all in `api-contract.mjs` that maps *any* thrown error to `503` — this is the "arguably covered transitively" half `verify-report.md` mentioned, and per its own recommendation the concrete gap to close is the **upload path's** genuinely-unexercised branch.
+- Reaching the live-pipeline review-run-trigger branch requires a document to already be registered (`isKnownUploadedDocument`), which itself requires a *reachable* Postgres during upload — so a single "Postgres unreachable" test for the review-run-trigger path would need a live-then-killed Docker container (more complex, out of scope for this narrow follow-up). Scoped this pass to the upload path only, matching `verify-report.md`'s explicit recommendation.
+
+### RED → GREEN evidence (genuine, not a trivially-passing test)
+
+New file: `apps/api/tests/postgres-unreachable.test.mjs`. Uses `DATABASE_URL=postgres://pg1:pg1@127.0.0.1:5555/pg1` (port 5555, deliberately *not* 5432 — this machine's local Homebrew `postgresql@17` intercepts `localhost:5432` and would produce an auth/role failure, which is Postgres being *reachable but misconfigured*, not a genuine connection-refused case). The test includes a preflight probe asserting the target port is truly `ECONNREFUSED` before trusting the real assertions, and does **not** skip when Postgres is unreachable — that is the desired condition — only the opposite (an unexpectedly *reachable* port) would fail the precondition.
+
+1. **RED (genuine, proven by deliberate sabotage, not by absence of code)**: Since the production code already existed (implemented but untested), proving RED meant demonstrating the test actually exercises the real defensive branch rather than being a tautology. Temporarily edited `apps/api/src/live-review-pipeline.mjs`'s `isConnectionError` to `return false && CONNECTION_ERROR_CODES.has(error?.code);`, then ran `node --import tsx --test tests/postgres-unreachable.test.mjs` → **FAILED**: `201 !== 503` — with the guard disabled, `registerUploadedDocument` silently swallows the `ECONNREFUSED` and the upload returns a silently-wrong `201` success (exactly the failure mode the spec scenario exists to prevent). This confirms the test is not a trivial pass — it genuinely detects a broken defense.
+2. **GREEN**: Reverted `isConnectionError` to its original form (`git diff --stat -- apps/api/src/live-review-pipeline.mjs` confirmed byte-identical to HEAD `ef91eda`, zero net production-code change). Re-ran `node --import tsx --test tests/postgres-unreachable.test.mjs` → **1 pass / 0 fail** — asserts `503`, standard error shape (`error`/`message`/`details`/`request_id`/`timestamp`), `error: "service_unavailable"`, and `details.reason` matching `ECONNREFUSED`.
+3. **REFACTOR**: N/A — no production code changed; this pass is pure test-coverage closure for already-correct defensive code.
+
+### Work Unit Evidence
+
+| Evidence | Value |
+|---|---|
+| Focused test command and exact result | `node --import tsx --test tests/postgres-unreachable.test.mjs` (in `apps/api`) → 1 pass / 0 fail |
+| Runtime harness command/scenario and exact result | The test itself IS the runtime harness — a real `pg.Client` TCP connection attempt against an unreachable local port, exercised through the real `handleApiRequest` → `processThesisDocumentUpload` → `registerUploadedDocument` → `createReviewRepository`/`withClient` chain (no mocked Postgres client) |
+| Rollback boundary | Delete `apps/api/tests/postgres-unreachable.test.mjs`; zero production files changed (confirmed via `git diff --stat -- apps/api/src/`) |
+
+### Full-suite verification (Docker down, canonical port, root `pnpm test`)
+
+- `apps/api`: **52 tests / 45 pass / 0 fail / 7 skip** (previously 44 pass/7 skip = 51 total at end of PR D; +1 new test, all-passing, same 7-skip baseline preserved — the new test correctly does not skip since it wants unreachability, which is always true with Docker down).
+- `apps/web`: **15 pass / 0 fail** (unchanged).
+- `services/worker`: **13 tests, OK** (unchanged).
+- `contract.test.mjs`'s protected assertions and every other previously-passing test verified unmodified and still green — no regressions.
+
+### Deviations from design
+
+None — implementation matches the verify-report recommendation exactly (one isolated test, upload path, real connection-refused case, no production code changes).
+
+### Issues found
+
+None. The existing `isConnectionError`/503 defensive code was already correct; this pass only added the missing test coverage and proved it via deliberate-sabotage RED/GREEN.

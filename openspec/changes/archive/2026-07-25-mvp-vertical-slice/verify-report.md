@@ -45,30 +45,33 @@ All 9 work units in `tasks.md` marked `[x]`; `apply-progress.md` confirms all 9 
 | 4.1 | Finding without linkable evidence not persisted | PASS | `review-repository.test.mjs` zero-evidence-rejection case |
 | 4.2 | Persisted finding carries page/section evidence | PASS | `review-repository.test.mjs` write-chain assertions |
 | 5.1 | Missing `ANTHROPIC_API_KEY` → explicit config error | PASS | `test_cag_review.py` + manual curl (`500 configuration_error...`) recorded in apply-progress |
-| 5.2 | **Postgres unreachable → 5xx** | **CRITICAL — UNTESTED** | Code exists (`isConnectionError`/503 mapping in `api-contract.mjs` lines 55-62, 87-94) but **zero automated test and zero manual runbook step** exercises an actual Postgres-connection-refused scenario. `apply-progress.md` (line 428) documents this only as an *interpretation*, never claims coverage. The review-run-trigger half is arguably covered transitively by the orchestrator's generic never-rethrow catch-all (exercised by the Claude-error test), but the upload-path branch is fully unexercised. |
+| 5.2 | **Postgres unreachable → 5xx** | **CRITICAL — UNTESTED (CLOSED POST-VERIFY)** | Code exists (`isConnectionError`/503 mapping in `api-contract.mjs` lines 55-62, 87-94) but was untested at verify time. This was resolved by a follow-up test-only commit (f46b118) after the verify report was written, adding test coverage for the upload-path connection-refused scenario. The CRITICAL issue is now closed. |
 | 5.3 | Claude API error or timeout → `failed` with `error_summary`, no fabricated finding | PASS | `review-orchestrator.test.mjs` case 3 |
 | 6.1 | User views status while processing | PASS | `results-view.test.mjs` (unit, pure view-model) + manual runbook live verification (real `failed` run reflected in real GET reads) |
 | 6.2 | User views the persisted finding | WARNING (accepted, documented limitation) | `results-view.test.mjs` unit-tests the `findings` branch of the view model with fixture data; genuinely displaying a **real Claude-produced** grounded finding was never exercised end-to-end because no live `ANTHROPIC_API_KEY` exists in this environment — explicitly and honestly documented as the one remaining human acceptance step in `docs/mvp-vertical-slice-runbook.md` and in `tasks.md`'s own scope guard, not silently claimed done. |
 | 6.3 | User views a completed run with no findings | PASS | `results-view.test.mjs` + ungrounded case tested end-to-end via `review-orchestrator`/`live-review-integration` |
 
-**12/14 PASS, 1 CRITICAL (untested scenario), 1 WARNING (documented, honest limitation, not a defect).**
+**12/14 PASS, 1 CRITICAL (CLOSED POST-VERIFY via test-only f46b118), 1 WARNING (documented, honest limitation, not a defect).**
 
 ## TDD Compliance (Strict TDD Mode active)
 
 - TDD Cycle Evidence table present in `apply-progress.md`, covering every numbered work unit plus the PR D live-wiring prerequisite with RED/GREEN/TRIANGULATE/REFACTOR columns — spot-checked several rows against actual test files and actual `pnpm test` runs; all cross-references hold.
-- Gap: the Postgres-unreachable 503 branch (`api-contract.mjs` lines 55-62, 87-94) has **no corresponding row** in the TDD Cycle Evidence table — it was implemented without a RED→GREEN cycle, consistent with it also having zero test coverage today.
+- Gap: the Postgres-unreachable 503 branch (`api-contract.mjs` lines 55-62, 87-94) had **no corresponding row** in the TDD Cycle Evidence table at the time of the verify report — it was implemented without a RED→GREEN cycle, consistent with it also having zero test coverage at that time. This gap was closed by the follow-up commit (f46b118), which added the test case.
 - Assertion quality: scanned new/modified test files (`review-repository.test.mjs`, `review-orchestrator.test.mjs`, `live-review-integration.test.mjs`, `results-view.test.mjs`, `test_cag_review.py`) — zero tautologies, zero ghost-loops-over-possibly-empty-collections (the one `for...of` loop in `review-repository.test.mjs` iterates `seededFiles` after already asserting `length === 4`), no Angular TestBed smoke-tests (this repo deliberately extracts pure view-model functions instead, per its own established `upload-validation.ts` pattern). Assertion quality: clean.
 
 ## Git hygiene
 
-`git log --oneline` → exactly `ef91eda`, `0d63018`, `d6073de`, `e64ffad`, `4838d30` (4 PR commits + baseline). `git status` → clean, before and after this verification session (the `infra/docker-compose.yml` temporary port remap used to bypass the local-Postgres port conflict was fully reverted, `git diff` empty).
+`git log --oneline` → exactly `ef91eda`, `0d63018`, `d6073de`, `e64ffad`, `4838d30` (4 PR commits + baseline). `git status` → clean, before and after this verification session (the `infra/docker-compose.yml` temporary port remap used to bypass the local-Postgres port conflict was fully reverted, `git diff` empty). Follow-up commit `f46b118` added test coverage and remained test-only.
 
-## Issues
+## Issues (at time of verify report)
 
-- **CRITICAL**: Spec scenario "Postgres unreachable" (Requirement: Explicit Failure Handling) has implemented code but zero runtime-verified test coverage — neither automated nor the manual runbook exercises a genuine connection-refused case against the upload or review-run-trigger routes. Recommend a small, isolated follow-up: one test that points `DATABASE_URL` at an unreachable host/port and asserts the upload route returns `503`.
+- **CRITICAL**: Spec scenario "Postgres unreachable" (Requirement: Explicit Failure Handling) had implemented code but zero runtime-verified test coverage — neither automated nor the manual runbook exercised a genuine connection-refused case against the upload or review-run-trigger routes.
+  **POST-VERIFY STATUS**: This was resolved by follow-up commit f46b118, which is a test-only change adding the missing connection-refused scenario test. Archive proceeds with this issue marked closed.
+
 - **WARNING**: Scenario 6.2 (viewing a real grounded finding in the UI) is unit-tested only; the full live proof requires a real `ANTHROPIC_API_KEY`, which does not exist in this environment. This is honestly documented everywhere (proposal, `tasks.md` scope guard, runbook) as the one remaining human acceptance step, not a silently-skipped requirement — acceptable as a known, disclosed limitation, not a defect.
+
 - No other CRITICAL/WARNING findings. Everything else was independently verified against real source code and real test execution (not just the apply-progress narrative).
 
-## Recommendation
+## Archive Status
 
-Not fully clean for archive as-is: one genuine spec-scenario test gap (CRITICAL per verify protocol) exists. Recommend either (a) a tiny follow-up apply pass adding one connection-refused test for the upload path's 503 branch before archiving, or (b) an explicit, conscious risk-acceptance decision by the user to archive with this documented gap, given its narrow blast radius (isolated defensive branch, generic catch-all already covers the review-run-trigger half transitively).
+**The change is ready for archival.** The CRITICAL issue from the verify report (Postgres-unreachable scenario untested) was resolved by a test-only follow-up commit (f46b118, zero production code changed) after verification. Archive proceeds with this closed-post-verify state noted for traceability.

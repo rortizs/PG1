@@ -46,8 +46,8 @@ test("API contract exposes the required versioned resource routes", () => {
 	]);
 });
 
-test("POST /api/v1/thesis-documents returns a contract-valid upload stub", () => {
-	const response = handleApiRequest({
+test("POST /api/v1/thesis-documents returns a contract-valid upload stub", async () => {
+	const response = await handleApiRequest({
 		method: "POST",
 		path: "/api/v1/thesis-documents",
 	});
@@ -59,8 +59,8 @@ test("POST /api/v1/thesis-documents returns a contract-valid upload stub", () =>
 	assert.match(response.body.id, /^doc_/);
 });
 
-test("GET /api/v1/thesis-documents returns a bounded paginated list with filters", () => {
-	const response = handleApiRequest({
+test("GET /api/v1/thesis-documents returns a bounded paginated list with filters", async () => {
+	const response = await handleApiRequest({
 		method: "GET",
 		path: "/api/v1/thesis-documents",
 		query: { page: "2", page_size: "10", status: "uploaded" },
@@ -92,8 +92,8 @@ test("POST /api/v1/thesis-documents/{document_id}/review-runs returns lifecycle-
 	assert.match(response.body.status_url, /^\/api\/v1\/review-runs\/run_/);
 });
 
-test("GET /api/v1/review-runs/{run_id} returns a status contract stub", () => {
-	const response = handleApiRequest({
+test("GET /api/v1/review-runs/{run_id} returns a status contract stub", async () => {
+	const response = await handleApiRequest({
 		method: "GET",
 		path: "/api/v1/review-runs/run_contract",
 	});
@@ -105,8 +105,8 @@ test("GET /api/v1/review-runs/{run_id} returns a status contract stub", () => {
 	assert.ok(response.body.summary);
 });
 
-test("GET /api/v1/review-runs/{run_id}/findings returns bounded findings list with filters", () => {
-	const response = handleApiRequest({
+test("GET /api/v1/review-runs/{run_id}/findings returns bounded findings list with filters", async () => {
+	const response = await handleApiRequest({
 		method: "GET",
 		path: "/api/v1/review-runs/run_contract/findings",
 		query: { page: "1", page_size: "25", type: "apa", severity: "medium" },
@@ -119,8 +119,8 @@ test("GET /api/v1/review-runs/{run_id}/findings returns bounded findings list wi
 	assert.deepEqual(response.body.filters, { type: "apa", severity: "medium" });
 });
 
-test("GET /api/v1/review-runs/{run_id}/report-artifacts returns a report artifact list stub", () => {
-	const response = handleApiRequest({
+test("GET /api/v1/review-runs/{run_id}/report-artifacts returns a report artifact list stub", async () => {
+	const response = await handleApiRequest({
 		method: "GET",
 		path: "/api/v1/review-runs/run_contract/report-artifacts",
 	});
@@ -131,15 +131,15 @@ test("GET /api/v1/review-runs/{run_id}/report-artifacts returns a report artifac
 	assert.equal(response.body.status, "pending");
 });
 
-test("unsupported routes return the standard error shape", () => {
-	const response = handleApiRequest({ method: "GET", path: "/api/v1/unknown" });
+test("unsupported routes return the standard error shape", async () => {
+	const response = await handleApiRequest({ method: "GET", path: "/api/v1/unknown" });
 
 	expectStandardError(response, 404);
 	assert.equal(response.body.error, "not_found");
 });
 
-test("invalid pagination returns the standard error shape", () => {
-	const response = handleApiRequest({
+test("invalid pagination returns the standard error shape", async () => {
+	const response = await handleApiRequest({
 		method: "GET",
 		path: "/api/v1/thesis-documents",
 		query: { page: "0", page_size: "500" },

@@ -105,21 +105,23 @@ Chain strategy: stacked-to-main
 
 ### 8. Angular results/status view
 
-- [ ] RED: Add component test for `/runs/:id` covering in-progress status, one persisted finding, and zero-finding "no findings" state per spec scenarios.
-- [ ] GREEN: Implement results view reading `GET /review-runs/{id}` and `GET /review-runs/{id}/findings` via `ThesisApiClient`.
-- [ ] TRIANGULATE: Cover polling/refresh while `status` is non-terminal.
-- [ ] REFACTOR: Share status-badge/finding-card presentational components.
-- [ ] Verify: `pnpm --dir apps/web test` green; `pnpm test` at root stays fully green (37+ tests).
-- [ ] Rollback: revert results component; upload flow (Work Unit 4) unaffected.
+- [x] RED: Added `apps/web/tests/results-view.test.mjs` (8 cases) for the not-yet-existing `results-view.ts` pure view-model, covering in-progress status, one persisted finding, zero-finding "no findings" state, a failed run, and a loading/error state — ran and confirmed `ERR_MODULE_NOT_FOUND` against the pre-implementation tree. Also closed the real Work Unit 7 prerequisite gap (live HTTP wiring — see apply-progress.md "Live HTTP Wiring") so this view has genuine data to read.
+- [x] GREEN: Implemented `apps/web/src/app/results/results-view.ts` (`buildResultsViewModel`/`isTerminalReviewRunStatus`) and wired `results-page.ts` to consume it, calling the real `GET /review-runs/{id}` and `GET /review-runs/{id}/findings` via `ThesisApiClient` (already real since PR B) — reading live status/findings, no fixtures.
+- [x] TRIANGULATE: Added polling (`setTimeout`-based re-fetch every 3s while `status` is non-terminal, cleared via `DestroyRef` on destroy); covered via `isTerminalReviewRunStatus`'s unit tests plus a live manual run reaching a terminal `failed` state through the real HTTP route.
+- [x] REFACTOR: N/A — no existing status-badge/finding-card components to share yet at this scale; `results-view.ts`'s discriminated `ResultsViewModel` union is the single source of truth the template `@switch`es on, avoiding duplicated branching logic.
+- [x] Verify: `pnpm --dir apps/web test` → 15 pass / 0 fail; `pnpm test` at root stays green (`apps/api` 44 pass/7 skip/0 fail Docker down, 51 pass/0 fail Docker up; `apps/web` 15 pass/0 fail; `services/worker` 13 pass/0 fail).
+- [x] Rollback: revert `results-page.ts`/`results-view.ts`; upload flow (Work Unit 4) and `thesis-api-client.ts` unaffected.
+
+**Prerequisite closed in this pass (not a separate numbered task, per the apply instructions):** wired the live HTTP path (`POST .../review-runs`, `GET .../review-runs/{id}`, `GET .../review-runs/{id}/findings`) to the real `createReviewPipeline()` for genuinely uploaded documents, added `apps/api/src/live-review-pipeline.mjs`, `createFilesystemObjectStorage`, `review-repository.mjs`'s `listFindingsForReviewRun`, and a new `apps/api/tests/live-review-integration.test.mjs` proving a real uploaded document reaches a real persisted finding / no-finding / failed outcome over the actual HTTP route — while leaving `contract.test.mjs`'s fabricated-document-id assertion untouched. Full rationale in apply-progress.md.
 
 ### 9. Manual end-to-end verification
 
-- [ ] RED: N/A — cannot be automated without a live `ANTHROPIC_API_KEY` and live Docker pg.
-- [ ] GREEN: N/A — no code change; runbook only.
-- [ ] TRIANGULATE: Document steps in `README.md`: user adds real key to `.env`, `docker compose up db`, `migrate.mjs up`, start api/worker/web, upload one real PDF/DOCX, trigger run, confirm finding renders.
-- [ ] REFACTOR: N/A.
-- [ ] Verify: user manually confirms one real finding is visible end to end; this step is explicitly excluded from automated `pnpm test`.
-- [ ] Rollback: N/A — verification only, no persisted artifacts required to revert.
+- [x] RED: N/A — cannot be automated without a live `ANTHROPIC_API_KEY` and live Docker pg (per `tasks.md`'s own scope guard).
+- [x] GREEN: N/A — no code change from this step itself; `docs/mvp-vertical-slice-runbook.md` created. (The `apps/web/proxy.conf.json` + `start` script fix was discovered and made *while verifying* this runbook — see apply-progress.md.)
+- [x] TRIANGULATE: Documented exact, verified steps in `docs/mvp-vertical-slice-runbook.md`: create `.env` (content unchanged from design.md), `docker compose -f infra/docker-compose.yml up -d`, run `migrate.mjs up`, start worker/api/web, upload one real PDF/DOCX through the browser, trigger a review run, confirm the results page renders. Every command up through "review run reaches a real `failed` state due to missing `ANTHROPIC_API_KEY`" was actually executed this session (not assumed) — see apply-progress.md's Test Commands Run.
+- [x] REFACTOR: N/A.
+- [x] Verify: the missing-key failure path was manually verified end to end this session (real upload, real DB row, real worker call, real `failed` status with a real `error_summary`). The final "a real key produces a real finding or a real no-finding `completed` run" sub-step explicitly requires a human with a real `ANTHROPIC_API_KEY`, which does not exist in this environment — this is documented in the runbook as the one remaining manual acceptance step, consistent with this task's own scope guard, and is explicitly excluded from automated `pnpm test`.
+- [x] Rollback: N/A — verification only; the one code fix discovered during verification (`apps/web/proxy.conf.json` + `start` script) rolls back independently by reverting those two files.
 
 ## Suggested PR Chain
 

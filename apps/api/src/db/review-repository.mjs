@@ -230,5 +230,39 @@ export function createReviewRepository({ client, connectionString } = {}) {
 				}
 			});
 		},
+
+		/**
+		 * Reads back every persisted finding (+ its primary evidence) for a
+		 * review run, ordered by id. Used by the live HTTP GET
+		 * `/review-runs/{id}/findings` path — never returns fabricated data,
+		 * only rows genuinely written by `persistFinding`.
+		 */
+		async listFindingsForReviewRun(reviewRunId) {
+			return run(async (pgClient) => {
+				const result = await pgClient.query(
+					`SELECT f.id AS finding_id, f.finding_type, f.severity, f.confidence,
+					        f.title, f.explanation, f.recommendation,
+					        es.evidence_text, es.page_number, es.chapter_or_section_title
+					 FROM finding f
+					 JOIN finding_evidence fe ON fe.finding_id = f.id AND fe.role = 'primary'
+					 JOIN evidence_snippet es ON es.id = fe.evidence_snippet_id
+					 WHERE f.review_run_id = $1
+					 ORDER BY f.id`,
+					[reviewRunId],
+				);
+				return result.rows.map((row) => ({
+					id: `finding_${toId(row.finding_id)}`,
+					finding_type: row.finding_type,
+					severity: row.severity,
+					confidence: row.confidence,
+					title: row.title,
+					explanation: row.explanation,
+					recommendation: row.recommendation,
+					evidence_text: row.evidence_text,
+					page_number: toId(row.page_number),
+					section_title: row.chapter_or_section_title,
+				}));
+			});
+		},
 	};
 }

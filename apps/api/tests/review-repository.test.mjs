@@ -123,6 +123,16 @@ test(
 			assert.equal(joinRows.rows.length, 1);
 			assert.equal(Number(joinRows.rows[0].evidence_snippet_id), evidenceIds[0]);
 
+			const findings = await repository.listFindingsForReviewRun(reviewRunId);
+			assert.equal(findings.length, 1);
+			assert.equal(findings[0].title, "Missing APA citation");
+			assert.equal(
+				findings[0].evidence_text,
+				"Studies show thesis quality improves with review.",
+			);
+			assert.equal(findings[0].page_number, 3);
+			assert.match(findings[0].id, /^finding_/);
+
 			await migrate.migrateDown({ client });
 			const tablesAfterDown = await client.query(
 				`SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'`,

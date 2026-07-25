@@ -55,7 +55,7 @@ export function createReviewOrchestrationProcessor({
 
 	const reviewRunDbIdByLifecycleId = new Map();
 
-	return async function process(payload) {
+	const process = async function process(payload) {
 		const {
 			review_run_id: lifecycleRunId,
 			thesis_document_id: thesisDocumentId,
@@ -138,6 +138,13 @@ export function createReviewOrchestrationProcessor({
 			});
 		}
 	};
+
+	// Exposed so `createReviewPipeline` can map an external lifecycle run id
+	// back to its internal Postgres `review_run.id` (needed to read persisted
+	// findings for that run) without changing `process`'s plain-function
+	// call shape expected by `inline-review-queue.mjs`.
+	process.reviewRunDbIdByLifecycleId = reviewRunDbIdByLifecycleId;
+	return process;
 }
 
 /**
@@ -146,9 +153,10 @@ export function createReviewOrchestrationProcessor({
  * running this module's orchestration processor. `lifecycle.startReviewRun()`
  * on the returned instance drives the whole extract -> CAG review -> persist
  * flow synchronously, matching the spec's "Synchronous Review-Run Trigger"
- * requirement. Not yet wired into `api-contract.mjs`'s live singleton (see
- * apply-progress.md's documented deviation) — this factory is the concrete,
- * tested seam a future controller-wiring step will plug in.
+ * requirement. Wired into `api-contract.mjs`'s live HTTP path (via
+ * `live-review-pipeline.mjs`) for genuinely uploaded documents only — see
+ * apply-progress.md's "Live HTTP Wiring" section for the real-vs-stub
+ * routing rationale.
  */
 export function createReviewPipeline({
 	repository,
@@ -175,5 +183,15 @@ export function createReviewPipeline({
 	const queue = createInlineReviewQueue({ processor });
 	lifecycleInstance = createReviewRunLifecycleService({ queue });
 
-	return { lifecycle: lifecycleInstance, queue };
+	return {
+		lifecycle: lifecycleInstance,
+		queue,
+		repository,
+		// Maps an external lifecycle run id (e.g. `run_doc_abc`) to the
+		// internal Postgres `review_run.id` written by this pipeline's
+		// processor — lets a caller (e.g. the live HTTP wiring) read back
+		// persisted findings for a run without re-deriving the mapping.
+		getReviewRunDbId: (lifecycleRunId) =>
+			processor.reviewRunDbIdByLifecycleId.get(lifecycleRunId) ?? null,
+	};
 }

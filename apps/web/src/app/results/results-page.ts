@@ -1,16 +1,28 @@
-import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  DestroyRef,
+  computed,
+  inject,
+  signal,
+} from '@angular/core';
 import { ActivatedRoute } from '@angular/router';
 import {
   FindingsListResponse,
   ReviewRunResponse,
   ThesisApiClient,
 } from '../thesis-api-client';
+import { buildResultsViewModel, isTerminalReviewRunStatus } from './results-view';
+
+const POLL_INTERVAL_MS = 3000;
 
 /**
- * Results page: shows a review run's live status from the API. Finding
- * rendering is wired to the real `GET .../findings` endpoint, but until PR C
- * persists real findings this legitimately renders the "no findings yet"
- * empty state — see design.md decision on synchronous CAG persistence.
+ * Results page: shows a review run's LIVE status and, once the run reaches
+ * a terminal state, its real persisted finding(s) — reading exclusively
+ * from the real API (no fixtures, no fabricated data). While the run is
+ * still processing, it polls `GET .../review-runs/{id}` every
+ * `POLL_INTERVAL_MS` until a terminal status (`completed`/`failed`/
+ * `cancelled`) is reached.
  */
 @Component({
   selector: 'app-results-page',
@@ -18,15 +30,25 @@ import {
   template: `
     <h1>Review run status</h1>
 
-    @if (loadError(); as message) {
-      <p role="alert">{{ message }}</p>
-    } @else if (run(); as currentRun) {
-      <p>Status: {{ currentRun.status }}</p>
-      <p>Stage: {{ currentRun.progress_stage }}</p>
-
-      @if (findings()?.items?.length) {
+    @switch (view().kind) {
+      @case ('loading') {
+        <p>Loading review run...</p>
+      }
+      @case ('error') {
+        <p role="alert">{{ errorMessage() }}</p>
+      }
+      @case ('in_progress') {
+        <p>Status: {{ statusLabel() }}</p>
+        <p>Stage: {{ stageLabel() }}</p>
+      }
+      @case ('failed') {
+        <p>Status: failed</p>
+        <p role="alert">{{ failureSummary() }}</p>
+      }
+      @case ('findings') {
+        <p>Status: completed</p>
         <ul>
-          @for (finding of findings()!.items; track finding.id) {
+          @for (finding of findingItems(); track finding.id) {
             <li>
               <h2>{{ finding.title }}</h2>
               <p>{{ finding.explanation }}</p>
@@ -34,26 +56,63 @@ import {
             </li>
           }
         </ul>
-      } @else {
-        <p>No findings yet.</p>
       }
-    } @else {
-      <p>Loading review run...</p>
+      @case ('no_findings') {
+        <p>Status: completed</p>
+        <p>No findings.</p>
+      }
     }
   `,
 })
 export class ResultsPage {
   private readonly route = inject(ActivatedRoute);
   private readonly api = inject(ThesisApiClient);
+  private readonly destroyRef = inject(DestroyRef);
 
   protected readonly runId = signal<string>(
     this.route.snapshot.paramMap.get('runId') ?? '',
   );
-  protected readonly run = signal<ReviewRunResponse | null>(null);
-  protected readonly findings = signal<FindingsListResponse | null>(null);
-  protected readonly loadError = signal<string | null>(null);
+  private readonly run = signal<ReviewRunResponse | null>(null);
+  private readonly findings = signal<FindingsListResponse | null>(null);
+  private readonly loadError = signal<string | null>(null);
+
+  protected readonly view = computed(() =>
+    buildResultsViewModel({
+      run: this.run(),
+      findings: this.findings(),
+      loadError: this.loadError(),
+    }),
+  );
+
+  protected readonly statusLabel = computed(() => {
+    const view = this.view();
+    return view.kind === 'in_progress' ? view.status : '';
+  });
+  protected readonly stageLabel = computed(() => {
+    const view = this.view();
+    return view.kind === 'in_progress' ? view.stage : '';
+  });
+  protected readonly failureSummary = computed(() => {
+    const view = this.view();
+    return view.kind === 'failed'
+      ? (view.errorSummary ?? 'The review run failed.')
+      : '';
+  });
+  protected readonly findingItems = computed(() => {
+    const view = this.view();
+    return view.kind === 'findings' ? view.items : [];
+  });
+  protected readonly errorMessage = computed(() => {
+    const view = this.view();
+    return view.kind === 'error' ? view.message : '';
+  });
+
+  private pollTimeoutId: ReturnType<typeof setTimeout> | undefined;
 
   constructor() {
+    this.destroyRef.onDestroy(() => {
+      if (this.pollTimeoutId !== undefined) clearTimeout(this.pollTimeoutId);
+    });
     this.loadRun();
   }
 
@@ -65,7 +124,11 @@ export class ResultsPage {
     }
 
     this.api.getReviewRun(id).subscribe({
-      next: (run) => this.run.set(run),
+      next: (run) => {
+        this.run.set(run);
+        this.loadError.set(null);
+        this.scheduleNextPollIfNeeded(run);
+      },
       error: () => this.loadError.set('Unable to load review run status.'),
     });
 
@@ -73,5 +136,10 @@ export class ResultsPage {
       next: (findings) => this.findings.set(findings),
       error: () => this.findings.set(null),
     });
+  }
+
+  private scheduleNextPollIfNeeded(run: ReviewRunResponse): void {
+    if (isTerminalReviewRunStatus(run.status)) return;
+    this.pollTimeoutId = setTimeout(() => this.loadRun(), POLL_INTERVAL_MS);
   }
 }

@@ -35,7 +35,14 @@ export async function readMigration(path = DEFAULT_MIGRATION_PATH) {
 	return splitMigration(sql);
 }
 
-async function withClient({ client, connectionString }, run) {
+/**
+ * Shared connection helper: runs `run(pgClient)` against either a caller-owned
+ * `client` (left open afterwards) or a fresh client opened from
+ * `connectionString` (closed afterwards). Exported so other modules that
+ * need a plain `pg` client — e.g. `review-repository.mjs` — do not
+ * reimplement this connect/close bookkeeping.
+ */
+export async function withClient({ client, connectionString }, run) {
 	const ownsClient = !client;
 	const pgClient = client ?? new Client({ connectionString });
 

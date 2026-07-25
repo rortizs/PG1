@@ -78,30 +78,30 @@ Chain strategy: stacked-to-main
 
 ### 5. FastAPI extraction endpoint
 
-- [ ] RED: Add `services/worker/tests/test_extract.py` for `POST /internal/extract` with PDF/DOCX fixtures asserting page-level text + provenance.
-- [ ] GREEN: Implement real `FastAPI()` app, `pypdf`/`python-docx` extraction in `services/worker/app/main.py`.
-- [ ] TRIANGULATE: Cover empty/corrupt file and unsupported content-type error cases.
-- [ ] REFACTOR: Isolate extraction into its own module for reuse by Work Unit 7's orchestration.
-- [ ] Verify: `pnpm --dir services/worker test` green; manual `uvicorn` + curl smoke.
-- [ ] Rollback: revert `main.ts` extraction route; keep worker returning a stub.
+- [x] RED: Add `services/worker/tests/test_extract.py` for `POST /internal/extract` with PDF/DOCX fixtures asserting page-level text + provenance.
+- [x] GREEN: Implement real `FastAPI()` app, `pypdf`/`python-docx` extraction in `services/worker/app/main.py`.
+- [x] TRIANGULATE: Cover empty/corrupt file and unsupported content-type error cases.
+- [x] REFACTOR: Isolate extraction into its own module for reuse by Work Unit 7's orchestration.
+- [x] Verify: `pnpm --dir services/worker test` green; manual `uvicorn` + curl smoke.
+- [x] Rollback: revert `main.ts` extraction route; keep worker returning a stub.
 
 ### 6. Claude CAG module behind `LLMProvider`
 
-- [ ] RED: Add `services/worker/tests/test_cag_review.py` using a **fake `LLMProvider`** asserting: grounded excerpt → one finding with evidence; ungrounded excerpt → `null`; malformed JSON from provider → explicit error, no fabricated finding.
-- [ ] GREEN: Implement `services/worker/app/providers/` protocol + `AnthropicProvider`, and `cag_review.py` building the corpus+excerpt prompt and parsing structured JSON.
-- [ ] TRIANGULATE: Add missing-`ANTHROPIC_API_KEY` case returning explicit config error, never a silent `completed`.
-- [ ] REFACTOR: Apply request timeout on the Claude HTTP call; keep provider swap-in-ready for DeepSeek/Groq.
-- [ ] Verify: `pnpm --dir services/worker test` green against fake provider only (no live key required).
-- [ ] Rollback: delete `providers/`/`cag_review.py`; `/internal/review` reverts to stub `null`.
+- [x] RED: Add `services/worker/tests/test_cag_review.py` using a **fake `LLMProvider`** asserting: grounded excerpt → one finding with evidence; ungrounded excerpt → `null`; malformed JSON from provider → explicit error, no fabricated finding.
+- [x] GREEN: Implement `services/worker/app/providers/` protocol + `AnthropicProvider`, and `cag_review.py` building the corpus+excerpt prompt and parsing structured JSON.
+- [x] TRIANGULATE: Add missing-`ANTHROPIC_API_KEY` case returning explicit config error, never a silent `completed`.
+- [x] REFACTOR: Apply request timeout on the Claude HTTP call; keep provider swap-in-ready for DeepSeek/Groq.
+- [x] Verify: `pnpm --dir services/worker test` green against fake provider only (no live key required).
+- [x] Rollback: delete `providers/`/`cag_review.py`; `/internal/review` reverts to stub `null`.
 
 ### 7. Finding/evidence persistence + inline queue
 
-- [ ] RED: Add `apps/api/tests/review-repository.test.mjs` (integration tier, live pg) asserting writes: `thesis_document`→`review_run`→`evidence_snippet`→`finding`→`finding_evidence`, seeded `normative_source` rows for the 4 corpus files, and rejection of candidates with zero evidence.
-- [ ] GREEN: Implement `apps/api/src/db/review-repository.mjs` and `apps/api/src/jobs/inline-review-queue.mjs` (`createInlineReviewQueue({ processor })` preserving `add()`).
-- [ ] TRIANGULATE: Wire orchestration: upload → extract → CAG review → persist, driven synchronously from the review-run trigger.
-- [ ] REFACTOR: Keep `review-queue.mjs`/`review-run-lifecycle.mjs` untouched as the future BullMQ seam.
-- [ ] Verify: `pnpm --dir apps/api test` green; manual run against Docker pg produces a persisted finding with evidence.
-- [ ] Rollback: delete `review-repository.mjs`/`inline-review-queue.mjs`; lifecycle stays on in-memory Map.
+- [x] RED: Add `apps/api/tests/review-repository.test.mjs` (integration tier, live pg) asserting writes: `thesis_document`→`review_run`→`evidence_snippet`→`finding`→`finding_evidence`, seeded `normative_source` rows for the 4 corpus files, and rejection of candidates with zero evidence.
+- [x] GREEN: Implement `apps/api/src/db/review-repository.mjs` and `apps/api/src/jobs/inline-review-queue.mjs` (`createInlineReviewQueue({ processor })` preserving `add()`).
+- [x] TRIANGULATE: Wire orchestration: upload → extract → CAG review → persist, driven synchronously from the review-run trigger — proven via `apps/api/src/jobs/review-orchestrator.mjs`'s `createReviewPipeline()` exercising the real, unmodified `review-run-lifecycle.mjs` + `inline-review-queue.mjs` synchronously end to end against live Postgres (`review-orchestrator.test.mjs`). **Not yet wired into `api-contract.mjs`'s live singleton/controllers** — see apply-progress.md's documented deviation (protecting the 40 pre-existing apps/api tests' tested behavior took priority in this pass).
+- [x] REFACTOR: Kept `review-queue.mjs`/`review-run-lifecycle.mjs` untouched (zero edits) as the future BullMQ seam; `migrate.mjs`'s `withClient` helper is now exported and reused by `review-repository.mjs` (the sharing deferred from Work Unit 2).
+- [x] Verify: `pnpm --dir apps/api test` green; manual run against Docker pg produces a persisted finding with evidence (`review-orchestrator.test.mjs`'s grounded-finding case, run live).
+- [x] Rollback: delete `review-repository.mjs`/`inline-review-queue.mjs`/`review-orchestrator.mjs`; lifecycle stays on in-memory Map (unaffected, since nothing wired it in for live traffic yet).
 
 ### 8. Angular results/status view
 

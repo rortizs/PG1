@@ -1,13 +1,10 @@
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
 
 const { Client } = pg;
 
-export const DEFAULT_MIGRATION_PATH = new URL(
-	"./migrations/0001_schema_baseline.sql",
-	import.meta.url,
-);
+export const MIGRATIONS_DIR = new URL("./migrations/", import.meta.url);
 
 /**
  * Splits a migration SQL file into its "-- UP" and "-- DOWN" sections.
@@ -30,7 +27,21 @@ export function splitMigration(sql) {
 	};
 }
 
-export async function readMigration(path = DEFAULT_MIGRATION_PATH) {
+/**
+ * Discovers every `*.sql` migration file under `dir` and returns their
+ * `file://` URLs sorted ascending by filename. Filename order IS the
+ * migration order (e.g. `0001_...sql` before `0002_...sql`); callers that
+ * need rollback order reverse the returned array themselves.
+ */
+export async function listMigrationFiles(dir = MIGRATIONS_DIR) {
+	const entries = await readdir(dir);
+	return entries
+		.filter((name) => name.endsWith(".sql"))
+		.sort()
+		.map((name) => new URL(name, dir));
+}
+
+export async function readMigration(path) {
 	const sql = await readFile(path, "utf8");
 	return splitMigration(sql);
 }
@@ -59,14 +70,25 @@ export async function withClient({ client, connectionString }, run) {
 	}
 }
 
+async function runMigrationFiles(paths, pgClient, section) {
+	for (const path of paths) {
+		const migration = await readMigration(path);
+		await pgClient.query(migration[section]);
+	}
+}
+
 export async function migrateUp({
 	client,
 	connectionString,
 	migrationPath,
+	migrationsDir,
 } = {}) {
-	const { up } = await readMigration(migrationPath);
+	const paths = migrationPath
+		? [migrationPath]
+		: await listMigrationFiles(migrationsDir);
+
 	return withClient({ client, connectionString }, (pgClient) =>
-		pgClient.query(up),
+		runMigrationFiles(paths, pgClient, "up"),
 	);
 }
 
@@ -74,10 +96,14 @@ export async function migrateDown({
 	client,
 	connectionString,
 	migrationPath,
+	migrationsDir,
 } = {}) {
-	const { down } = await readMigration(migrationPath);
+	const paths = migrationPath
+		? [migrationPath]
+		: (await listMigrationFiles(migrationsDir)).reverse();
+
 	return withClient({ client, connectionString }, (pgClient) =>
-		pgClient.query(down),
+		runMigrationFiles(paths, pgClient, "down"),
 	);
 }
 

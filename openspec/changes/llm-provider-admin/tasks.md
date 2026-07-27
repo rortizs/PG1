@@ -45,21 +45,21 @@ Chain strategy: stacked-to-main
 
 ### 1. Migration runner auto-discovery
 
-- [ ] RED: Extend `apps/api/tests/migrate-runner.test.mjs` asserting `migrate.mjs` discovers all `*.sql` files under `apps/api/src/db/migrations/` via glob+sort (not the hardcoded `DEFAULT_MIGRATION_PATH` single path) — add a second fixture migration and assert both apply in filename order.
-- [ ] GREEN: Modify `apps/api/src/db/migrate.mjs` to replace the hardcoded `0001_schema_baseline.sql` path with `fs.readdir`+sort-based discovery.
-- [ ] TRIANGULATE: Confirm `0001` alone still applies with no regression; confirm out-of-order filenames still sort correctly.
-- [ ] REFACTOR: Extract discovery into a `listMigrationFiles()` helper for reuse/testability.
-- [ ] Verify: `pnpm --dir apps/api test` green; manual `migrate.mjs up`/`down` cycle against dockerized pg with 2 fixture files.
-- [ ] Rollback: revert `migrate.mjs` to hardcoded single-file path (`0001` keeps working, still first alphabetically).
+- [x] RED: Extend `apps/api/tests/migrate-runner.test.mjs` asserting `migrate.mjs` discovers all `*.sql` files under `apps/api/src/db/migrations/` via glob+sort (not the hardcoded `DEFAULT_MIGRATION_PATH` single path) — add a second fixture migration and assert both apply in filename order.
+- [x] GREEN: Modify `apps/api/src/db/migrate.mjs` to replace the hardcoded `0001_schema_baseline.sql` path with `fs.readdir`+sort-based discovery.
+- [x] TRIANGULATE: Confirm `0001` alone still applies with no regression; confirm out-of-order filenames still sort correctly.
+- [x] REFACTOR: Extract discovery into a `listMigrationFiles()` helper for reuse/testability.
+- [x] Verify: `pnpm --dir apps/api test` green; manual `migrate.mjs up`/`down` cycle against dockerized pg with 2 fixture files.
+- [x] Rollback: revert `migrate.mjs` to hardcoded single-file path (`0001` keeps working, still first alphabetically).
 
 ### 2. `0002_llm_provider_config.sql` migration
 
-- [ ] RED: Add up/down assertions that `llm_provider_config` gets CHECK constraints on `provider_name`/`model_id` and the partial unique index enforcing exactly-one-active; inserting two active rows in the same test must violate the index.
-- [ ] GREEN: Create `apps/api/src/db/migrations/0002_llm_provider_config.sql` (`-- UP`/`-- DOWN`), table per design's Interfaces/Contracts, `CREATE UNIQUE INDEX ... ON llm_provider_config (is_active) WHERE is_active`.
-- [ ] TRIANGULATE: Confirm `0002` runs after `0001` via Work Unit 1's ordered runner; confirm `-- DOWN` cleanly drops the table.
-- [ ] REFACTOR: N/A — single migration file, no shared logic yet.
-- [ ] Verify: `pnpm --dir apps/api test` green; manual `migrate.mjs up` confirms `llm_provider_config` exists among all tables.
-- [ ] Rollback: `migrate.mjs down` for `0002`, or delete the file (table never created).
+- [x] RED: Add up/down assertions that `llm_provider_config` gets CHECK constraints on `provider_name`/`model_id` and the partial unique index enforcing exactly-one-active; inserting two active rows in the same test must violate the index.
+- [x] GREEN: Create `apps/api/src/db/migrations/0002_llm_provider_config.sql` (`-- UP`/`-- DOWN`), table per design's Interfaces/Contracts, `CREATE UNIQUE INDEX ... ON llm_provider_config (is_active) WHERE is_active`.
+- [x] TRIANGULATE: Confirm `0002` runs after `0001` via Work Unit 1's ordered runner; confirm `-- DOWN` cleanly drops the table.
+- [x] REFACTOR: N/A — single migration file, no shared logic yet.
+- [x] Verify: `pnpm --dir apps/api test` green; manual `migrate.mjs up` confirms `llm_provider_config` exists among all tables.
+- [x] Rollback: `migrate.mjs down` for `0002`, or delete the file (table never created).
 
 ### 3. AES-256-GCM encryption module
 

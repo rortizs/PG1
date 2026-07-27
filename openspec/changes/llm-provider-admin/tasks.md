@@ -63,21 +63,21 @@ Chain strategy: stacked-to-main
 
 ### 3. AES-256-GCM encryption module
 
-- [ ] RED: Add `apps/api/tests/provider-key-cipher.test.mjs` (node:test) asserting encrypt→decrypt round-trip; tampering with the packed ciphertext throws (GCM auth failure); `getEncryptionKey()` throws when `LLM_PROVIDER_ENCRYPTION_KEY` is missing or not exactly 64 hex chars.
-- [ ] GREEN: Create `apps/api/src/security/provider-key-cipher.mjs` — `encryptApiKey`/`decryptApiKey` (packed `v1:iv(b64):tag(b64):ct(b64)`), `getEncryptionKey()` fail-fast validation.
-- [ ] TRIANGULATE: Cover empty-string key, non-hex key, and wrong-byte-length key as separate fail-fast cases.
-- [ ] REFACTOR: N/A — module stays self-contained.
-- [ ] Verify: `pnpm --dir apps/api test` green; no live services required.
-- [ ] Rollback: delete `provider-key-cipher.mjs`; nothing else depends on it yet.
+- [x] RED: Add `apps/api/tests/provider-key-cipher.test.mjs` (node:test) asserting encrypt→decrypt round-trip; tampering with the packed ciphertext throws (GCM auth failure); `getEncryptionKey()` throws when `LLM_PROVIDER_ENCRYPTION_KEY` is missing or not exactly 64 hex chars.
+- [x] GREEN: Create `apps/api/src/security/provider-key-cipher.mjs` — `encryptApiKey`/`decryptApiKey` (packed `v1:iv(b64):tag(b64):ct(b64)`), `getEncryptionKey()` fail-fast validation.
+- [x] TRIANGULATE: Cover empty-string key, non-hex key, and wrong-byte-length key as separate fail-fast cases.
+- [x] REFACTOR: N/A — module stays self-contained.
+- [x] Verify: `pnpm --dir apps/api test` green; no live services required.
+- [x] Rollback: delete `provider-key-cipher.mjs`; nothing else depends on it yet.
 
 ### 4. Admin CRUD + activate endpoints
 
-- [ ] RED: Add `apps/api/tests/admin-contract.test.mjs`: create without `x-admin-secret` → 401; wrong secret → 403; `provider_name: "openai"` → 422; valid claude row → 201 + masked/last-4 key only; update without resubmitting key preserves masked key; activate atomically deactivates the previously active row.
-- [ ] GREEN: Create `apps/api/src/db/provider-config-repository.mjs` (CRUD + `getActiveProvider()`, encrypts on write), `apps/api/src/admin-contract.mjs` (masks keys in every response), `apps/api/src/admin/admin.controller.ts` + `admin-secret.guard.ts` (constant-time compare); register in `app.module.ts`.
-- [ ] TRIANGULATE: Confirm `contract.test.mjs` stays byte-untouched and green; confirm list endpoint never includes `encrypted_api_key`.
-- [ ] REFACTOR: Share response-masking logic between create/update/list handlers.
-- [ ] Verify: `pnpm --dir apps/api test` green (incl. untouched `contract.test.mjs`); manual `pnpm --dir apps/api start` + curl against all 4 admin routes.
-- [ ] Rollback: delete `admin-contract.mjs`/`admin.controller.ts`/`admin-secret.guard.ts`/`provider-config-repository.mjs`; revert `app.module.ts`.
+- [x] RED: Add `apps/api/tests/admin-contract.test.mjs`: create without `x-admin-secret` → 401; wrong secret → 403; `provider_name: "openai"` → 422; valid claude row → 201 + masked/last-4 key only; update without resubmitting key preserves masked key; activate atomically deactivates the previously active row.
+- [x] GREEN: Create `apps/api/src/db/provider-config-repository.mjs` (CRUD + `getActiveProvider()`, encrypts on write), `apps/api/src/admin-contract.mjs` (masks keys in every response), `apps/api/src/admin/admin.controller.ts` + `admin-secret.guard.ts` (constant-time compare); register in `app.module.ts`.
+- [x] TRIANGULATE: Confirm `contract.test.mjs` stays byte-untouched and green; confirm list endpoint never includes `encrypted_api_key`.
+- [x] REFACTOR: Share response-masking logic between create/update/list handlers.
+- [x] Verify: `pnpm --dir apps/api test` green (incl. untouched `contract.test.mjs`); manual `pnpm --dir apps/api start` + curl against all 4 admin routes.
+- [x] Rollback: delete `admin-contract.mjs`/`admin.controller.ts`/`admin-secret.guard.ts`/`provider-config-repository.mjs`; revert `app.module.ts`.
 
 ### 5. Active-provider resolution wired into review pipeline
 

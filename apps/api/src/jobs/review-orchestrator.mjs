@@ -14,12 +14,30 @@ const DEFAULT_WORKER_TIMEOUT_MS = 30_000;
  * (see apply-progress.md) — every caller of `createReviewPipeline` must
  * supply its own `extractThesisText` today (a real implementation for
  * production, a fake for tests).
+ *
+ * llm-provider-admin (Work Unit 5): `providerName`/`apiKey`/`modelId` are
+ * the DB-resolved active provider's fields, forwarded by
+ * `live-review-pipeline.mjs`'s custom `runCagReview` closure. All three are
+ * OPTIONAL and only included in the request body when actually supplied —
+ * omitting them keeps the pre-existing Claude+`ANTHROPIC_API_KEY`-env-var
+ * worker behavior unchanged (design decision #11: rollback + local dev).
+ * Never logged; forwarded only in this internal API->worker request body,
+ * the same trust boundary as `WORKER_BASE_URL` itself.
  */
-export async function defaultRunCagReview({ thesisText }) {
+export async function defaultRunCagReview({
+	thesisText,
+	providerName,
+	apiKey,
+	modelId,
+}) {
+	const body = { thesis_text: thesisText };
+	if (providerName !== undefined) body.provider_name = providerName;
+	if (apiKey !== undefined) body.api_key = apiKey;
+	if (modelId !== undefined) body.model_id = modelId;
 	const response = await fetch(`${DEFAULT_WORKER_BASE_URL}/internal/review`, {
 		method: "POST",
 		headers: { "content-type": "application/json" },
-		body: JSON.stringify({ thesis_text: thesisText }),
+		body: JSON.stringify(body),
 		signal: AbortSignal.timeout(DEFAULT_WORKER_TIMEOUT_MS),
 	});
 	if (!response.ok) {

@@ -1,6 +1,10 @@
 import { createFilesystemObjectStorage } from "./storage/object-storage.mjs";
 import { createReviewRepository } from "./db/review-repository.mjs";
-import { createReviewPipeline } from "./jobs/review-orchestrator.mjs";
+import {
+	createReviewPipeline,
+	defaultRunCagReview,
+} from "./jobs/review-orchestrator.mjs";
+import { createProviderConfigRepository } from "./db/provider-config-repository.mjs";
 
 /**
  * Composition root for the LIVE (real Postgres + real worker) review
@@ -43,6 +47,7 @@ const uploadedDocuments = new Map();
 let cachedRepository = null;
 let cachedPipeline = null;
 let cachedNormativeSourceIds = null;
+let cachedProviderRepository = null;
 
 function databaseUrl() {
 	return process.env.DATABASE_URL || null;
@@ -55,6 +60,51 @@ function getRepository() {
 		cachedRepository = createReviewRepository({ connectionString });
 	}
 	return cachedRepository;
+}
+
+/**
+ * Lazily builds (and caches) the provider-config repository used to resolve
+ * the DB-active LLM provider (llm-provider-admin, Work Unit 5). Construction
+ * itself fails fast (`EncryptionKeyError`) if `LLM_PROVIDER_ENCRYPTION_KEY`
+ * is misconfigured — see `provider-config-repository.mjs` — surfacing as a
+ * genuine `review_run.status: "failed"` the first time a review is actually
+ * triggered, exactly like every other resolution failure in this file.
+ */
+function getProviderRepository() {
+	const connectionString = databaseUrl();
+	if (!connectionString) return null;
+	if (!cachedProviderRepository) {
+		cachedProviderRepository = createProviderConfigRepository({ connectionString });
+	}
+	return cachedProviderRepository;
+}
+
+/**
+ * Resolves + decrypts the currently active LLM provider and forwards its
+ * fields to the worker's `/internal/review` — spec's "Runtime Active-Provider
+ * Credential Resolution" requirement: re-resolved fresh on EVERY call (never
+ * cached across review-run triggers), so a provider switch takes effect on
+ * the very next run with no restart. Zero active rows throws an explicit,
+ * spec-worded error ("no active LLM provider configured") that the
+ * pre-existing `createReviewOrchestrationProcessor` catch block already
+ * turns into `review_run.status: "failed"` + `error_summary` — no new error
+ * handling needed here, matching the existing failure pattern exactly.
+ */
+async function runCagReviewWithActiveProvider({ thesisText }) {
+	const providerRepository = getProviderRepository();
+	if (!providerRepository) {
+		throw new Error("no active LLM provider configured: DATABASE_URL is not set");
+	}
+	const active = await providerRepository.getActiveProvider();
+	if (!active) {
+		throw new Error("no active LLM provider configured");
+	}
+	return defaultRunCagReview({
+		thesisText,
+		providerName: active.providerName,
+		apiKey: active.apiKey,
+		modelId: active.modelId,
+	});
 }
 
 async function resolveNormativeSourceId(repository, ref) {
@@ -117,6 +167,10 @@ export function getLivePipeline() {
 				return entry.dbId;
 			},
 			extractThesisText: extractViaWorker,
+			// llm-provider-admin (Work Unit 5): resolves+decrypts the active
+			// provider fresh on every trigger instead of always calling Claude
+			// via the default env-var-only path.
+			runCagReview: runCagReviewWithActiveProvider,
 			resolveNormativeSourceId: (ref) => resolveNormativeSourceId(repository, ref),
 		});
 		cachedPipeline = {
@@ -214,4 +268,5 @@ export function _resetLiveReviewPipelineForTests() {
 	cachedRepository = null;
 	cachedPipeline = null;
 	cachedNormativeSourceIds = null;
+	cachedProviderRepository = null;
 }

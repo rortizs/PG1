@@ -1,10 +1,16 @@
 """Real Claude provider, implementing the `LLMProvider` protocol.
 
-`ANTHROPIC_API_KEY` is read from the environment lazily, inside `generate()`
-— never at import time or construction time — so this module can be safely
-imported, and `AnthropicProvider()` safely constructed, in test processes
-that have no API key configured. Only an actual `.generate()` call requires
-the key.
+The API key is resolved lazily, inside `generate()` — never at import time
+or construction time — so this module can be safely imported, and
+`AnthropicProvider()` safely constructed, in test processes that have no API
+key configured. Only an actual `.generate()` call requires a key.
+
+llm-provider-admin (Work Unit 5): the NestJS API now resolves the DB-active
+provider and forwards its decrypted `api_key`/`model_id` on each request.
+`AnthropicProvider` accepts an explicit `api_key` at construction time and
+prefers it over `ANTHROPIC_API_KEY` (arg-then-env precedence, design
+decision #11) — the env var stays as the fallback for local dev/testing and
+for any caller that has not been updated to send an explicit key.
 """
 from __future__ import annotations
 
@@ -29,16 +35,25 @@ class AnthropicProvider:
         self,
         model: str = DEFAULT_MODEL,
         *,
+        api_key: str | None = None,
         timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
     ) -> None:
         self._model = model
+        self._api_key = api_key
         self._timeout_seconds = timeout_seconds
 
+    def _resolve_api_key(self) -> str | None:
+        """Arg-then-env precedence: an explicit `api_key` (the DB-resolved
+        active provider's decrypted key, forwarded by the API) always wins
+        over `ANTHROPIC_API_KEY` when both are present."""
+        return self._api_key or os.environ.get("ANTHROPIC_API_KEY")
+
     def generate(self, prompt: str, *, max_tokens: int = 1024) -> str:
-        api_key = os.environ.get("ANTHROPIC_API_KEY")
+        api_key = self._resolve_api_key()
         if not api_key:
             raise AnthropicProviderConfigError(
-                "ANTHROPIC_API_KEY is not set — cannot call the real Claude API."
+                "No Anthropic API key available — neither an explicit api_key "
+                "nor ANTHROPIC_API_KEY is set — cannot call the real Claude API."
             )
 
         # Imported lazily so the `anthropic` package only needs to be

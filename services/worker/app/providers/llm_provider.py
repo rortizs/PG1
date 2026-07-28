@@ -13,6 +13,15 @@ class LLMProviderError(RuntimeError):
     """Base error for provider failures (config, network, upstream API)."""
 
 
+class ProviderNotImplementedError(LLMProviderError):
+    """Raised when a registered `provider_name` (DeepSeek, Groq, or any name
+    not yet wired to a real implementation) is actually used to run a
+    review. Registering/activating such a provider via the admin API is
+    allowed (llm-provider-admin PR B); calling `.generate()` on it is not —
+    this must fail loudly, never silently fall back to another provider, and
+    never attempt a real network call."""
+
+
 @runtime_checkable
 class LLMProvider(Protocol):
     def generate(self, prompt: str, *, max_tokens: int = 1024) -> str:

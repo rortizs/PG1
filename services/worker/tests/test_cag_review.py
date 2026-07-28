@@ -93,6 +93,11 @@ class CagReviewTest(unittest.TestCase):
             run_cag_review(provider, "Some excerpt.")
 
     def test_missing_anthropic_api_key_raises_explicit_config_error(self):
+        """Both the request payload AND the env var are absent — still fails
+        explicitly. Reworked for llm-provider-admin: `AnthropicProvider()` no
+        longer implicitly means "read only the env var" — it means "no
+        explicit key was supplied", which still falls back to the env var
+        when present and still fails when neither is present."""
         import os
 
         from app.cag_review import run_cag_review
@@ -109,6 +114,49 @@ class CagReviewTest(unittest.TestCase):
         finally:
             if previous is not None:
                 os.environ["ANTHROPIC_API_KEY"] = previous
+
+    def test_explicit_api_key_and_model_take_precedence_over_env_when_both_present(self):
+        """llm-provider-admin: the DB-resolved active provider's api_key/model_id
+        (forwarded from the API as explicit constructor args) MUST win over
+        whatever ANTHROPIC_API_KEY happens to be set in the worker's own
+        environment (e.g. left over from local dev) — never silently prefer
+        the env var when a payload value was actually supplied."""
+        import os
+
+        from app.providers.anthropic_provider import AnthropicProvider
+
+        previous = os.environ.get("ANTHROPIC_API_KEY")
+        os.environ["ANTHROPIC_API_KEY"] = "env-key-must-not-be-used"
+        try:
+            provider = AnthropicProvider(
+                model="claude-explicit-model", api_key="explicit-key-from-request"
+            )
+            self.assertEqual(provider._resolve_api_key(), "explicit-key-from-request")
+            self.assertEqual(provider._model, "claude-explicit-model")
+        finally:
+            if previous is not None:
+                os.environ["ANTHROPIC_API_KEY"] = previous
+            else:
+                os.environ.pop("ANTHROPIC_API_KEY", None)
+
+    def test_env_api_key_still_used_when_no_explicit_key_supplied(self):
+        """Rollback / local-dev requirement (design decision #11): the
+        ANTHROPIC_API_KEY env fallback MUST keep working when the request
+        carries no explicit api_key at all."""
+        import os
+
+        from app.providers.anthropic_provider import AnthropicProvider
+
+        previous = os.environ.get("ANTHROPIC_API_KEY")
+        os.environ["ANTHROPIC_API_KEY"] = "env-key-should-be-used"
+        try:
+            provider = AnthropicProvider()
+            self.assertEqual(provider._resolve_api_key(), "env-key-should-be-used")
+        finally:
+            if previous is not None:
+                os.environ["ANTHROPIC_API_KEY"] = previous
+            else:
+                os.environ.pop("ANTHROPIC_API_KEY", None)
 
 
 if __name__ == "__main__":

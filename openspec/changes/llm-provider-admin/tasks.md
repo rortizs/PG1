@@ -81,21 +81,21 @@ Chain strategy: stacked-to-main
 
 ### 5. Active-provider resolution wired into review pipeline
 
-- [ ] RED: (a) Assert `live-review-pipeline.mjs` throws "no active LLM provider configured" with zero active rows, surfacing as `review_run.status: "failed"` + `error_summary` (no raw key). (b) Consciously rework `services/worker/tests/test_cag_review.py:95-111` — keep the both-absent failure case, ADD a case asserting payload `api_key`/`model_id` take precedence over env when both present.
-- [ ] GREEN: Modify `apps/api/src/live-review-pipeline.mjs` to resolve+decrypt the active provider per review-run-trigger; modify `apps/api/src/jobs/review-orchestrator.mjs`'s `defaultRunCagReview` to forward `provider_name`/`api_key`/`model_id`; modify `services/worker/app/main.py` (optional `ReviewRequest` fields, factory selection) and `anthropic_provider.py` (`__init__(api_key=None, model=...)`, arg-then-env precedence per design decision #11).
-- [ ] TRIANGULATE: Two sequential runs with different active providers each carry the correct provider's fields (no restart needed).
-- [ ] REFACTOR: Ensure the raw key never appears in `error_summary`, logs, or `audit_event.message` on a failure path.
-- [ ] Verify: `pnpm --dir apps/api test && pnpm --dir services/worker test` green; manual end-to-end run with one active Claude row.
-- [ ] Rollback: revert `live-review-pipeline.mjs`/`review-orchestrator.mjs`/`main.py`/`anthropic_provider.py`; kept env fallback means `ANTHROPIC_API_KEY`-only flow still operates.
+- [x] RED: (a) Assert `live-review-pipeline.mjs` throws "no active LLM provider configured" with zero active rows, surfacing as `review_run.status: "failed"` + `error_summary` (no raw key). (b) Consciously rework `services/worker/tests/test_cag_review.py:95-111` — keep the both-absent failure case, ADD a case asserting payload `api_key`/`model_id` take precedence over env when both present.
+- [x] GREEN: Modify `apps/api/src/live-review-pipeline.mjs` to resolve+decrypt the active provider per review-run-trigger; modify `apps/api/src/jobs/review-orchestrator.mjs`'s `defaultRunCagReview` to forward `provider_name`/`api_key`/`model_id`; modify `services/worker/app/main.py` (optional `ReviewRequest` fields, factory selection) and `anthropic_provider.py` (`__init__(api_key=None, model=...)`, arg-then-env precedence per design decision #11).
+- [x] TRIANGULATE: Two sequential runs with different active providers each carry the correct provider's fields (no restart needed).
+- [x] REFACTOR: Ensure the raw key never appears in `error_summary`, logs, or `audit_event.message` on a failure path.
+- [x] Verify: `pnpm --dir apps/api test && pnpm --dir services/worker test` green; manual end-to-end run with one active Claude row.
+- [x] Rollback: revert `live-review-pipeline.mjs`/`review-orchestrator.mjs`/`main.py`/`anthropic_provider.py`; kept env fallback means `ANTHROPIC_API_KEY`-only flow still operates.
 
 ### 6. DeepSeek/Groq registry stubs
 
-- [ ] RED: Add a worker test asserting the provider factory raises a clear `LLMProviderError` (not a silent stub) when `provider_name` is `deepseek` or `groq`.
-- [ ] GREEN: Add a worker-side factory branch raising `LLMProviderError("not yet implemented")` for deepseek/groq — no real API call attempted.
-- [ ] TRIANGULATE: Confirm an admin can still create/activate a deepseek/groq row via Work Unit 4's admin API; failure only occurs at review-run time, not create/activate time.
-- [ ] REFACTOR: N/A — single factory branch addition.
-- [ ] Verify: `pnpm --dir services/worker test` green; no live DeepSeek/Groq keys required.
-- [ ] Rollback: revert factory branch.
+- [x] RED: Add a worker test asserting the provider factory raises a clear `LLMProviderError` (not a silent stub) when `provider_name` is `deepseek` or `groq`.
+- [x] GREEN: Add a worker-side factory branch raising `LLMProviderError("not yet implemented")` for deepseek/groq — no real API call attempted.
+- [x] TRIANGULATE: Confirm an admin can still create/activate a deepseek/groq row via Work Unit 4's admin API; failure only occurs at review-run time, not create/activate time.
+- [x] REFACTOR: N/A — single factory branch addition.
+- [x] Verify: `pnpm --dir services/worker test` green; no live DeepSeek/Groq keys required.
+- [x] Rollback: revert factory branch.
 
 ### 7. Angular `admin/` feature
 

@@ -5,6 +5,15 @@ import { createServer } from "node:http";
 const DEFAULT_LOCAL_DATABASE_URL = "postgres://pg1:pg1@localhost:5432/pg1";
 const databaseUrl = process.env.DATABASE_URL ?? DEFAULT_LOCAL_DATABASE_URL;
 
+// llm-provider-admin (Work Unit 5): every review-run trigger now resolves
+// the DB-active provider first — a necessary, deliberate update to this
+// pre-existing test (see apply-progress.md's "A necessary, deliberate
+// change" note). Without seeding an active row, scenarios 1-2 below would
+// now genuinely fail at the "no active LLM provider configured" step before
+// ever reaching this file's fake worker, which is not what those scenarios
+// are testing.
+const VALID_ENCRYPTION_KEY = "d".repeat(64); // 64 hex chars = 32 bytes
+
 async function connectOrSkip(t) {
 	const { default: pg } = await import("pg");
 	const client = new pg.Client({
@@ -93,6 +102,7 @@ test(
 		await probeClient.end();
 
 		process.env.DATABASE_URL = databaseUrl;
+		process.env.LLM_PROVIDER_ENCRYPTION_KEY = VALID_ENCRYPTION_KEY;
 		const worker = await startFakeWorker();
 		process.env.WORKER_BASE_URL = worker.url;
 
@@ -100,7 +110,24 @@ test(
 		const { _resetLiveReviewPipelineForTests } = await import(
 			"../src/live-review-pipeline.mjs"
 		);
+		const { createProviderConfigRepository } = await import(
+			"../src/db/provider-config-repository.mjs"
+		);
 		_resetLiveReviewPipelineForTests();
+
+		// Seed and activate one claude provider row so every scenario below
+		// (which exercises the worker's response handling, not provider
+		// resolution itself) reaches the real worker exactly as before this
+		// pass — see the VALID_ENCRYPTION_KEY comment above.
+		const providerRepository = createProviderConfigRepository({
+			connectionString: databaseUrl,
+		});
+		const seededProvider = await providerRepository.create({
+			providerName: "claude",
+			modelId: "claude-sonnet-4-20250514",
+			apiKey: "sk-ant-live-integration-fixture-key",
+		});
+		await providerRepository.activate(seededProvider.id);
 
 		try {
 			// --- Scenario 1: grounded finding -> completed, exactly one persisted finding ---

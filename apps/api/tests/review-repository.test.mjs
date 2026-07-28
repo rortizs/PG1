@@ -133,6 +133,33 @@ test(
 			assert.equal(findings[0].page_number, 3);
 			assert.match(findings[0].id, /^finding_/);
 
+			// llm-provider-admin Work Unit 8: provider provenance on a completed
+			// review_run. Written by the orchestrator alongside the completion
+			// status update — verify both the write and the dedicated read path.
+			await repository.updateReviewRunStatus(reviewRunId, {
+				completedAt: new Date(),
+				llmProviderName: "claude",
+				llmModelId: "claude-sonnet-4-20250514",
+			});
+			const provenanceRow = await client.query(
+				"SELECT llm_provider_name, llm_model_id FROM review_run WHERE id = $1",
+				[reviewRunId],
+			);
+			assert.equal(provenanceRow.rows[0].llm_provider_name, "claude");
+			assert.equal(provenanceRow.rows[0].llm_model_id, "claude-sonnet-4-20250514");
+
+			const provenance = await repository.getReviewRunProvenance(reviewRunId);
+			assert.deepEqual(provenance, {
+				llmProviderName: "claude",
+				llmModelId: "claude-sonnet-4-20250514",
+			});
+
+			// A run whose provenance was never set (e.g. pre-existing runs from
+			// before this change) must read back gracefully as nulls, never throw.
+			const otherRunId = await repository.insertReviewRun({ thesisDocumentId });
+			const noProvenance = await repository.getReviewRunProvenance(otherRunId);
+			assert.deepEqual(noProvenance, { llmProviderName: null, llmModelId: null });
+
 			await migrate.migrateDown({ client });
 			const tablesAfterDown = await client.query(
 				`SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'`,

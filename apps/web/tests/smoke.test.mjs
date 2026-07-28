@@ -23,6 +23,7 @@ test('web app boots a real standalone Angular application with upload and result
   );
   assert.match(routesSource, /upload/);
   assert.match(routesSource, /runs\/:runId/);
+  assert.match(routesSource, /admin\/llm-providers/);
 });
 
 test('upload and results feature components exist as real standalone, OnPush Angular components', async () => {
@@ -40,4 +41,31 @@ test('upload and results feature components exist as real standalone, OnPush Ang
   );
   assert.match(resultsSource, /class ResultsPage/);
   assert.match(resultsSource, /ChangeDetectionStrategy\.OnPush/);
+});
+
+test('admin providers feature exists as a real standalone, OnPush Angular component and never persists the secret to localStorage', async () => {
+  const pageSource = await readFile(
+    new URL('../src/app/admin/admin-providers-page.ts', import.meta.url),
+    'utf8',
+  );
+  assert.match(pageSource, /class AdminProvidersPage/);
+  assert.match(pageSource, /ChangeDetectionStrategy\.OnPush/);
+  assert.match(pageSource, /ReactiveFormsModule/);
+
+  const secretStoreSource = await readFile(
+    new URL('../src/app/admin/admin-secret-store.ts', import.meta.url),
+    'utf8',
+  );
+  assert.match(secretStoreSource, /class AdminSecretStore/);
+  // The doc comment legitimately explains why localStorage is NOT used —
+  // assert no actual storage-API *usage*, not the absence of the word.
+  assert.doesNotMatch(secretStoreSource, /localStorage\s*[.[]/);
+  assert.doesNotMatch(secretStoreSource, /sessionStorage\s*[.[]/);
+
+  const apiClientSource = await readFile(
+    new URL('../src/app/admin/admin-api-client.ts', import.meta.url),
+    'utf8',
+  );
+  assert.match(apiClientSource, /class AdminApiClient/);
+  assert.match(apiClientSource, /x-admin-secret/);
 });

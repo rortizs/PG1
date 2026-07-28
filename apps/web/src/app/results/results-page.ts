@@ -47,6 +47,7 @@ const POLL_INTERVAL_MS = 3000;
       }
       @case ('findings') {
         <p>Status: completed</p>
+        <p>Reviewed by: {{ providerLabel() }}</p>
         <ul>
           @for (finding of findingItems(); track finding.id) {
             <li>
@@ -59,6 +60,7 @@ const POLL_INTERVAL_MS = 3000;
       }
       @case ('no_findings') {
         <p>Status: completed</p>
+        <p>Reviewed by: {{ providerLabel() }}</p>
         <p>No findings.</p>
       }
     }
@@ -101,6 +103,10 @@ export class ResultsPage {
   protected readonly findingItems = computed(() => {
     const view = this.view();
     return view.kind === 'findings' ? view.items : [];
+  });
+  protected readonly providerLabel = computed(() => {
+    const view = this.view();
+    return view.kind === 'findings' || view.kind === 'no_findings' ? view.providerLabel : '';
   });
   protected readonly errorMessage = computed(() => {
     const view = this.view();

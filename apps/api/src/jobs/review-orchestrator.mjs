@@ -139,6 +139,16 @@ export function createReviewOrchestrationProcessor({
 
 			await repository.updateReviewRunStatus(reviewRunDbId, {
 				completedAt: new Date(),
+				// llm-provider-admin Work Unit 8: `runCagReview`'s result MAY carry
+				// which provider actually produced it (`live-review-pipeline.mjs`'s
+				// `runCagReviewWithActiveProvider` augments its result with these
+				// two fields) — persisted onto the completed review_run so the
+				// admin/results views can show provenance. `undefined` (a
+				// `runCagReview` implementation that doesn't know/report this,
+				// e.g. every existing test's fake worker) safely no-ops via
+				// `updateReviewRunStatus`'s own `COALESCE`.
+				llmProviderName: reviewResult?.providerName ?? null,
+				llmModelId: reviewResult?.modelId ?? null,
 			});
 			lifecycle.transitionReviewRun(lifecycleRunId, "completed");
 		} catch (error) {

@@ -30,6 +30,13 @@ export interface ReviewRunResponse {
     findings: number;
     reports: number;
   };
+  /**
+   * llm-provider-admin Work Unit 8: which provider (name + model id) handled
+   * this run — `null`/`null` for runs with no recorded provenance (e.g. a
+   * pre-existing run from before this change), never an error.
+   */
+  llm_provider_name: string | null;
+  llm_model_id: string | null;
 }
 
 export interface FindingSummary {

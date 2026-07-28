@@ -176,6 +176,34 @@ test(
 			assert.equal(statusRes.status, 200);
 			assert.equal(statusRes.body.status, "completed");
 			assert.equal(statusRes.body.summary.findings, 1);
+			// llm-provider-admin Work Unit 8: the completed run's GET response
+			// names which provider/model actually handled it (spec's "Backoffice
+			// Provider Visibility & Run Provenance" requirement) — the seeded
+			// active provider above, resolved end to end through the real
+			// pipeline, not fabricated.
+			assert.equal(statusRes.body.llm_provider_name, "claude");
+			assert.equal(statusRes.body.llm_model_id, "claude-sonnet-4-20250514");
+
+			// TRIANGULATE: a run completed BEFORE this change (NULL provenance
+			// columns) must render gracefully — never an error — proving the
+			// "unknown provider" fallback is real, not assumed. Simulated here by
+			// directly nulling this genuinely-completed run's provenance columns.
+			const { default: pg } = await import("pg");
+			const provenanceClient = new pg.Client({ connectionString: databaseUrl });
+			await provenanceClient.connect();
+			await provenanceClient.query(
+				"UPDATE review_run SET llm_provider_name = NULL, llm_model_id = NULL WHERE id = $1",
+				[(await import("../src/live-review-pipeline.mjs")).getLivePipeline().getReviewRunDbId(runId)],
+			);
+			await provenanceClient.end();
+			const statusResAfterNulling = await handleApiRequest({
+				method: "GET",
+				path: `/api/v1/review-runs/${runId}`,
+			});
+			assert.equal(statusResAfterNulling.status, 200);
+			assert.equal(statusResAfterNulling.body.status, "completed");
+			assert.equal(statusResAfterNulling.body.llm_provider_name, null);
+			assert.equal(statusResAfterNulling.body.llm_model_id, null);
 
 			const findingsRes = await handleApiRequest({
 				method: "GET",

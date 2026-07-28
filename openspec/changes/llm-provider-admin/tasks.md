@@ -99,30 +99,30 @@ Chain strategy: stacked-to-main
 
 ### 7. Angular `admin/` feature
 
-- [ ] RED: Add `apps/web/tests/admin-providers-view.test.mjs` for the not-yet-existing pure `admin-providers-view.ts`: empty list, masked-key rendering, add-form submit payload (key write-only), activate payload, session-scoped secret prompt gating requests.
-- [ ] GREEN: Scaffold `apps/web/src/app/admin/` (standalone + signals + `inject()`): provider list page, add/edit form, activate action, new `AdminApiClient` sending `x-admin-secret`; add `/admin/llm-providers` route in `app.routes.ts`; secret held in an in-memory signal, prompted once per session (design decision #9).
-- [ ] TRIANGULATE: Cover 401/403 UI states surfacing a clear error, not a silent failure.
-- [ ] REFACTOR: Extract shared masked-key display formatting if duplicated between list/edit views.
-- [ ] Verify: `pnpm --dir apps/web test` green; manual `pnpm --dir apps/web start` — add+activate a claude row, confirm plaintext key never appears in DOM/network after save.
-- [ ] Rollback: revert `apps/web/src/app/admin/` + `app.routes.ts` route entry.
+- [x] RED: Add `apps/web/tests/admin-providers-view.test.mjs` for the not-yet-existing pure `admin-providers-view.ts`: empty list, masked-key rendering, add-form submit payload (key write-only), activate payload, session-scoped secret prompt gating requests.
+- [x] GREEN: Scaffold `apps/web/src/app/admin/` (standalone + signals + `inject()`): provider list page, add/edit form, activate action, new `AdminApiClient` sending `x-admin-secret`; add `/admin/llm-providers` route in `app.routes.ts`; secret held in an in-memory signal, prompted once per session (design decision #9).
+- [x] TRIANGULATE: Cover 401/403 UI states surfacing a clear error, not a silent failure.
+- [x] REFACTOR: N/A this pass — `maskedKeyLabel`/path-building helpers were written shared-from-the-start in the single pure `admin-providers-view.ts` module (mirroring `results-view.ts`'s pattern), not duplicated between list/edit code first.
+- [x] Verify: `pnpm --dir apps/web test` green (40/40); `ng build` typechecks the component/template cleanly; manual `pnpm --dir apps/web start` (real dev server + real proxied admin API) — confirmed `/admin/llm-providers` renders (200) and the proxied `GET /api/v1/admin/llm-providers` reaches the real API and returns the masked list; manual `curl` end to end confirmed a raw key is never present in any admin API response body.
+- [x] Rollback: revert `apps/web/src/app/admin/` + `app.routes.ts` route entry + `apps/web/tests/admin-providers-view.test.mjs` + `apps/web/tests/smoke.test.mjs`'s admin assertions.
 
 ### 8. Provider provenance on results view
 
-- [ ] RED: Add a repository test asserting a completed `review_run` records the provider name + model id that handled it; add a results-view test asserting the view model surfaces "which provider handled this run".
-- [ ] GREEN: Add `apps/api/src/db/migrations/0003_review_run_provider_provenance.sql` (`llm_provider_name`, `llm_model_id` columns); populate in `review-repository.mjs` on run completion; surface in `apps/web/src/app/results/results-view.ts`.
-- [ ] TRIANGULATE: Runs completed before this change (NULL columns) render a graceful "unknown provider" state, not an error.
-- [ ] REFACTOR: N/A — additive columns only.
-- [ ] Verify: `pnpm --dir apps/api test && pnpm --dir apps/web test` green; manual run shows the results view naming the provider.
-- [ ] Rollback: drop `0003`'s columns via its `-- DOWN`; revert `review-repository.mjs`/`results-view.ts` provenance surfacing.
+- [x] RED: Added `apps/api/tests/review-repository.test.mjs` assertions that `updateReviewRunStatus`/`getReviewRunProvenance` write and read back a completed run's provider name + model id (and gracefully return nulls when never set); extended `apps/api/tests/review-orchestrator.test.mjs` to assert the orchestrator persists `runCagReview`'s `providerName`/`modelId` onto the completed row; added `apps/api/tests/review-run-provenance-migration.test.mjs` (schema-level, mirrors Work Unit 2's pattern); extended `apps/api/tests/live-review-integration.test.mjs` for the full HTTP-response proof; extended `apps/web/tests/results-view.test.mjs` asserting the view model surfaces "which provider handled this run" (`providerLabel`) and a graceful "Unknown provider" fallback.
+- [x] GREEN: Added `apps/api/src/db/migrations/0003_review_run_provider_provenance.sql` (`llm_provider_name` CHECK-constrained to the same claude/deepseek/groq enum, `llm_model_id` — both nullable); `review-repository.mjs`'s `updateReviewRunStatus` persists them (COALESCE, additive) and a new `getReviewRunProvenance()` reads them back; `live-review-pipeline.mjs`'s `runCagReviewWithActiveProvider` augments its result with the resolved provider's name/model (the worker's own response never echoes this); `review-orchestrator.mjs` persists it on completion; `api-contract.mjs`'s `withRealSummary` (+ both stub paths) surfaces `llm_provider_name`/`llm_model_id` on every `GET /review-runs/{id}` response; `apps/web/src/app/thesis-api-client.ts`'s `ReviewRunResponse` gained the two fields; `results-view.ts` gained `formatProviderLabel()` and a `providerLabel` on the `findings`/`no_findings` view-model kinds; `results-page.ts` renders "Reviewed by: ...".
+- [x] TRIANGULATE: Runs with no provenance set render "Unknown provider" — proven at 3 layers: the pure `formatProviderLabel`/`buildResultsViewModel` unit tests, the repository's `getReviewRunProvenance` on an un-provenanced run, and a live-Postgres end-to-end proof in `live-review-integration.test.mjs` that directly nulls a genuinely-completed run's columns and confirms the GET response degrades gracefully (`200`, nulls, no error).
+- [x] REFACTOR: N/A — additive columns + one small augmentation point (`runCagReviewWithActiveProvider`'s return value) only, as scoped.
+- [x] Verify: `pnpm --dir apps/api test && pnpm --dir apps/web test` green (offline: 64/13/0 + 40/0/0; live: 77/0/0); manual live run (real PDF, activated-but-fake-key claude provider, real worker, real Anthropic API genuinely rejecting the fake key with `401`) confirmed the run reaches a real `failed` status and the GET response correctly carries `llm_provider_name: null`/`llm_model_id: null` (provenance is only populated on a *completed* run, by design — a failed run never fabricates a handler).
+- [x] Rollback: drop `0003`'s columns via its `-- DOWN`; revert `review-repository.mjs`/`review-orchestrator.mjs`/`live-review-pipeline.mjs`/`api-contract.mjs`/`thesis-api-client.ts`/`results-view.ts`/`results-page.ts`'s provenance additions; delete `apps/api/tests/review-run-provenance-migration.test.mjs`.
 
 ### 9. Manual end-to-end verification
 
-- [ ] RED: N/A — cannot be automated without a live `ANTHROPIC_API_KEY` entered through the UI.
-- [ ] GREEN: N/A — extend `docs/mvp-vertical-slice-runbook.md` with an "LLM Provider Admin" section: set `LLM_PROVIDER_ENCRYPTION_KEY`/`ADMIN_SHARED_SECRET`, run `migrate.mjs up` (`0002`/`0003`), open `/admin/llm-providers`, enter the session secret, add+activate a real Claude row, trigger a review run, confirm the results view names Claude as the handler.
-- [ ] TRIANGULATE: N/A — documentation only.
-- [ ] REFACTOR: N/A.
-- [ ] Verify: manual step — user follows the runbook with a real `ANTHROPIC_API_KEY` entered via the UI (never `.env`) and confirms an end-to-end run using the DB-resolved provider.
-- [ ] Rollback: N/A — docs only.
+- [x] RED: N/A — cannot be automated without a live `ANTHROPIC_API_KEY` entered through the UI, per design.
+- [x] GREEN: N/A (docs-only) — extended `docs/mvp-vertical-slice-runbook.md` in place (decision: same file, new clearly-linked "LLM Provider Admin — Manual End-to-End Verification" section at the end, rather than a separate file — it extends, not replaces, the same stack-startup steps 0–5, and tasks.md's own GREEN wording says "extend ... with an 'LLM Provider Admin' section") with exact steps: set `LLM_PROVIDER_ENCRYPTION_KEY`/`ADMIN_SHARED_SECRET`, run `migrate.mjs up` (now auto-discovers `0002`/`0003` too), open `/admin/llm-providers`, enter the session secret, add+activate a real Claude row, trigger a review run, confirm the results view names the provider.
+- [x] TRIANGULATE: N/A — documentation only.
+- [x] REFACTOR: N/A.
+- [x] Verify: everything short of the actual real-key Claude call was run for real this session — server boots with the new admin env vars; all 4 admin endpoints respond correctly (401/403/201/200) via real `curl`; a zero-active-provider run reaches a genuine `failed` status; an activated-but-fake-key claude provider's real forwarded key was genuinely rejected by the real Anthropic API (`401 invalid x-api-key`, captured in the worker's own log), proving the full admin→pipeline→worker→Claude wiring is real; the Angular admin page was served by a real `ng serve` + proxy and its proxied API call returned the real masked list; a discovered local-machine port quirk (`localhost:8000` resolving to an unrelated PHP dev server on `[::1]:8000` instead of the worker on `127.0.0.1:8000`) was found, root-caused, worked around, and documented in the runbook. The final real-key Claude call remains for the user, exactly as scoped.
+- [x] Rollback: N/A — docs only.
 
 ## Suggested PR Chain
 

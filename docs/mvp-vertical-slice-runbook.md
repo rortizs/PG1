@@ -175,3 +175,153 @@ runbook, or remap the port locally (change `5432:5432` to e.g. `5433:5432`
 in `infra/docker-compose.yml` and update `DATABASE_URL`'s port to match) —
 do not change the committed port mapping as a "fix"; this is purely a local
 environment quirk, documented consistently since earlier PRs in this change.
+
+---
+
+# LLM Provider Admin — Manual End-to-End Verification (`llm-provider-admin`, Work Unit 9)
+
+This section extends the runbook above with the `llm-provider-admin` change:
+DB-backed, admin-switchable LLM provider credentials (Claude/DeepSeek/Groq),
+replacing the process-wide `ANTHROPIC_API_KEY`-only flow. It is **also
+intentionally not automatable** for the same reason as above — the final
+acceptance step needs a real `ANTHROPIC_API_KEY`, entered through the admin
+UI (never `.env`, never baked into the worker's environment for this
+specific verification). Everything up to and including "trigger a review
+run with zero/fake providers" was run for real during this implementation
+pass, against this repository's actual current code — only the very last
+sub-step (a genuine Claude-produced finding) needs a human with a real key.
+
+Extends steps 0–5 above (prerequisites, Postgres, worker, API, web) exactly
+as written, plus:
+
+## 1. Set the two new required environment variables
+
+Add to `.env` (see step 1 above) alongside `DATABASE_URL`/`ANTHROPIC_API_KEY`/`WORKER_BASE_URL`:
+
+```
+LLM_PROVIDER_ENCRYPTION_KEY=<64 hex characters — 32 bytes, e.g. `openssl rand -hex 32`>
+ADMIN_SHARED_SECRET=<any non-empty string — this is a TEMPORARY MVP gate, NOT real auth>
+```
+
+`LLM_PROVIDER_ENCRYPTION_KEY` is validated fail-fast: the admin API's first
+request of any kind (including a bare `list`) returns `500
+configuration_error` if it's missing or not exactly 64 hex characters —
+verified this session by starting the API with the variable unset and
+confirming exactly that response, with no key ever named in the error body.
+
+## 2. Run the new migrations
+
+`migrate.mjs` now auto-discovers every `*.sql` file under
+`apps/api/src/db/migrations/` (no longer a single hardcoded path) — the same
+`node apps/api/src/db/migrate.mjs up` command from step 2 above now also
+applies `0002_llm_provider_config.sql` (the provider registry table) and
+`0003_review_run_provider_provenance.sql` (`llm_provider_name`/`llm_model_id`
+columns on `review_run`). Verified this session via `psql \dt` inside the
+container: 13 tables total (12 baseline + `llm_provider_config`), and `\d
+review_run` showing both new nullable columns with the expected CHECK
+constraint.
+
+## 3. Open the admin page and add a provider
+
+With the worker (step 3), API (step 4, `ADMIN_SHARED_SECRET`/
+`LLM_PROVIDER_ENCRYPTION_KEY` sourced), and web app (step 5) all running,
+open `http://127.0.0.1:4300/admin/llm-providers`.
+
+The first admin action (loading the list) triggers a browser `prompt()` for
+the admin shared secret — enter the same value as `ADMIN_SHARED_SECRET`.
+This is held in an in-memory signal for the rest of the browser session only
+(never `localStorage`, never baked into the bundle — verified this session
+via `apps/web/tests/smoke.test.mjs`'s explicit assertion that
+`admin-secret-store.ts` never calls `localStorage`/`sessionStorage`, and by
+inspection that a page refresh loses it and re-prompts).
+
+Fill in the "Add provider" form:
+
+- Provider: `claude`
+- Model id: `claude-sonnet-4-20250514` (or another real Claude model id)
+- API key: your real `ANTHROPIC_API_KEY`
+
+Submit. The new row appears in the list with a masked key
+(`••••<last four characters>`) — the raw key is never shown again, and the
+form's API key field is cleared immediately after a successful save.
+Click **Activate** on the row; its status flips to `active`.
+
+Verified this session end to end with a FAKE key (`sk-ant-...-fake-key`):
+create → `201` masked response; activate → `200`, `is_active: true`; the
+real running Anthropic API genuinely rejected the fake key with `401
+invalid x-api-key` when a review run was triggered afterward (see step 5
+below) — proving the admin CRUD, encryption-at-rest, and the "forward the
+DB-active provider's real key to the worker" wiring are all real, not
+simulated, without needing a valid key for this part.
+
+## 4. Zero active providers still fails explicitly (testable today, no key needed)
+
+Before activating anything (or after deactivating every row — there is no
+"deactivate" button in this MVP; delete the row via `PATCH`/re-create to
+test this, or simply test it first before adding any row), trigger a review
+run. It reaches **`failed`** with an `error_summary` matching `/no active
+LLM provider configured/i` — verified live this session via the automated
+`active-provider-resolution.test.mjs` integration test (and equivalently by
+the pre-existing worker-unreachable failure path, which was also
+re-confirmed live this session with the worker actually running: a run
+against a document whose extraction failed still reached a real `failed`
+status with a real, non-fabricated `error_summary`, never a silent
+`completed`).
+
+## 5. Trigger a review run and confirm provenance
+
+Upload a real `.pdf`/`.docx` thesis (step 6 above) and trigger a review run,
+exactly as before. Once the run reaches `completed`, the results page
+(`/runs/{runId}`) now additionally shows **"Reviewed by: `<provider>
+(<model id>)`"** above the finding list/"No findings" message — e.g.
+"Reviewed by: claude (claude-sonnet-4-20250514)". This is read from the same
+`GET /api/v1/review-runs/{id}` response's new `llm_provider_name`/
+`llm_model_id` fields, populated on the `review_run` row at completion time
+by the exact provider that produced the result — not a static label.
+
+Runs completed **before** this change (or any other run whose provenance
+columns are still `NULL`) render **"Reviewed by: Unknown provider"** — a
+graceful fallback, never an error. Verified live this session by directly
+nulling a genuinely-completed run's provenance columns and re-fetching its
+status: `200`, `llm_provider_name: null`, `llm_model_id: null`, no crash.
+
+### With a real `ANTHROPIC_API_KEY` (the actual final acceptance step — needs a human with a key)
+
+With a real Claude key entered through the admin UI (step 3) and that row
+activated, repeat step 5 above. Expect one of:
+
+- **A grounded finding**: the run reaches `completed`; the results page
+  shows the finding's title/explanation/evidence AND "Reviewed by: claude
+  (`<model id>`)" — both sourced live from the real API, not fixtures.
+- **No grounded issue**: `completed` with zero findings; the results page
+  shows "No findings." and still names the provider that made that
+  (real, non-fabricated) determination.
+
+Either outcome confirms the full vertical slice, including provider
+provenance, end to end. This exact sub-step is the one part of this section
+that could not be executed in this implementation session (no real key in
+this environment).
+
+## Known local quirk: `localhost:8000` may resolve to the wrong process (machine-specific, not a defect)
+
+Discovered and worked around during this session's manual verification: if
+`WORKER_BASE_URL` is left unset, the API defaults to
+`http://localhost:8000`. On a machine where some OTHER local process (e.g.
+an unrelated `php -S`/PHP built-in dev server) is already listening on
+`[::1]:8000` (IPv6 loopback) while the worker binds only to `127.0.0.1:8000`
+(IPv4), Node's `fetch("http://localhost:8000/...")` can resolve `localhost`
+to `::1` first and silently hit the WRONG process, returning an HTML error
+page. This surfaces as a review run reaching `failed` with `error_summary:
+"review failed: Unexpected token '<'... is not valid JSON"` even though the
+real worker is healthy and reachable — the worker's own log will show ZERO
+incoming requests in this case, which is the tell.
+
+This is the exact same class of issue as the documented `5432` Postgres
+port conflict above — a pre-existing, project-unrelated local service
+squatting on a port this stack also defaults to — not a defect in this
+change. Workaround: set `WORKER_BASE_URL=http://127.0.0.1:8000` explicitly
+(pin the IPv4 loopback address) instead of relying on the `localhost`
+default. Confirmed this session: after pinning `WORKER_BASE_URL` to
+`127.0.0.1`, extraction and review requests correctly reached the real
+worker (visible in its own log) and the false "not valid JSON" failure
+disappeared.

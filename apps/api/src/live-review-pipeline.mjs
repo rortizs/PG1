@@ -99,12 +99,19 @@ async function runCagReviewWithActiveProvider({ thesisText }) {
 	if (!active) {
 		throw new Error("no active LLM provider configured");
 	}
-	return defaultRunCagReview({
+	const result = await defaultRunCagReview({
 		thesisText,
 		providerName: active.providerName,
 		apiKey: active.apiKey,
 		modelId: active.modelId,
 	});
+	// llm-provider-admin Work Unit 8: the worker's response never echoes the
+	// provider it used (see services/worker/app/main.py's response shape) —
+	// this is the one place that genuinely knows which provider/model just
+	// handled the call, so it's the source of truth for provenance, carried
+	// alongside the worker's own result for `review-orchestrator.mjs` to
+	// persist on completion.
+	return { ...result, providerName: active.providerName, modelId: active.modelId };
 }
 
 async function resolveNormativeSourceId(repository, ref) {

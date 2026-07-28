@@ -23,8 +23,26 @@ export type ResultsViewModel =
   | { kind: 'error'; message: string }
   | { kind: 'in_progress'; status: string; stage: string }
   | { kind: 'failed'; status: string; errorSummary: string | null }
-  | { kind: 'findings'; status: string; items: FindingSummary[] }
-  | { kind: 'no_findings'; status: string };
+  | { kind: 'findings'; status: string; items: FindingSummary[]; providerLabel: string }
+  | { kind: 'no_findings'; status: string; providerLabel: string };
+
+/**
+ * llm-provider-admin Work Unit 8: a completed run's provenance is rendered
+ * as one human-readable label. Missing provenance (a pre-existing run from
+ * before this change, or any other reason the columns are NULL) renders a
+ * graceful "Unknown provider" state — never a blank string, never an error.
+ */
+export function formatProviderLabel({
+  providerName,
+  modelId,
+}: {
+  providerName: string | null;
+  modelId: string | null;
+}): string {
+  if (!providerName) return 'Unknown provider';
+  if (!modelId) return `${providerName} (unknown model)`;
+  return `${providerName} (${modelId})`;
+}
 
 export function buildResultsViewModel({
   run,
@@ -46,9 +64,13 @@ export function buildResultsViewModel({
     return { kind: 'failed', status: run.status, errorSummary: run.error_summary };
   }
 
+  const providerLabel = formatProviderLabel({
+    providerName: run.llm_provider_name,
+    modelId: run.llm_model_id,
+  });
   const items = findings?.items ?? [];
   if (items.length > 0) {
-    return { kind: 'findings', status: run.status, items };
+    return { kind: 'findings', status: run.status, items, providerLabel };
   }
-  return { kind: 'no_findings', status: run.status };
+  return { kind: 'no_findings', status: run.status, providerLabel };
 }

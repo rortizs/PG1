@@ -75,7 +75,7 @@ async function setupPipeline({ client, runCagReview }) {
 		uploadedByUserId: 1,
 	});
 
-	const { lifecycle } = createReviewPipeline({
+	const { lifecycle, getReviewRunDbId } = createReviewPipeline({
 		repository,
 		resolveThesisDocumentDbId: async () => thesisDocumentDbId,
 		extractThesisText: async () => ({ fullText: "Extracted thesis excerpt." }),
@@ -83,7 +83,7 @@ async function setupPipeline({ client, runCagReview }) {
 		resolveNormativeSourceId: async (ref) => normativeSourceIds[ref] ?? null,
 	});
 
-	return { repository, lifecycle, thesisDocumentDbId };
+	return { repository, lifecycle, thesisDocumentDbId, getReviewRunDbId };
 }
 
 test(
@@ -97,8 +97,13 @@ test(
 			await migrate.migrateDown({ client }).catch(() => {});
 			await migrate.migrateUp({ client });
 
-			const { lifecycle } = await setupPipeline({
+			const { lifecycle, repository, getReviewRunDbId } = await setupPipeline({
 				client,
+				// llm-provider-admin Work Unit 8: `runCagReview`'s result carries
+				// the provider that actually produced this finding
+				// (`live-review-pipeline.mjs`'s `runCagReviewWithActiveProvider`
+				// augments its result with these two fields) — the orchestrator
+				// must persist them onto the completed review_run.
 				runCagReview: async () => ({
 					finding: {
 						title: "Missing APA citation",
@@ -112,6 +117,8 @@ test(
 						confidence: 0.75,
 						producer_id: "claude-sonnet-4",
 					},
+					providerName: "claude",
+					modelId: "claude-sonnet-4-20250514",
 				}),
 			});
 
@@ -132,6 +139,13 @@ test(
 				"SELECT count(*)::int AS count FROM finding_evidence",
 			);
 			assert.equal(evidenceRows.rows[0].count, 1);
+
+			const reviewRunDbId = getReviewRunDbId(response.body.id);
+			const provenance = await repository.getReviewRunProvenance(reviewRunDbId);
+			assert.deepEqual(provenance, {
+				llmProviderName: "claude",
+				llmModelId: "claude-sonnet-4-20250514",
+			});
 
 			await migrate.migrateDown({ client });
 		} finally {

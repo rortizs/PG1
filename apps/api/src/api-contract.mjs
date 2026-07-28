@@ -14,6 +14,11 @@ import {
 // contract-tested behavior.
 const reviewRunLifecycle = createReviewRunLifecycleService();
 const EMPTY_SUMMARY = { pages: 0, sections: 0, findings: 0, reports: 0 };
+// llm-provider-admin Work Unit 8: every review-run response carries these
+// two fields (spec's "Backoffice Provider Visibility & Run Provenance"
+// requirement) — `null` for stub/never-completed/pre-provenance runs, never
+// an error or an omitted field, so callers can rely on the shape.
+const EMPTY_PROVENANCE = { llm_provider_name: null, llm_model_id: null };
 
 const ROUTES = [
 	["POST", "/api/v1/thesis-documents"],
@@ -158,7 +163,11 @@ async function resolveReviewRunView(runId) {
 	}
 	try {
 		const result = reviewRunLifecycle.getReviewRun(runId);
-		return { ...result.body, summary: { ...EMPTY_SUMMARY } };
+		return {
+			...result.body,
+			summary: { ...EMPTY_SUMMARY },
+			...EMPTY_PROVENANCE,
+		};
 	} catch {
 		// Not a stub-lifecycle run either — fall through to the legacy stub.
 	}
@@ -167,6 +176,7 @@ async function resolveReviewRunView(runId) {
 
 async function withRealSummary(run, livePipeline, runId) {
 	let findings = 0;
+	let provenance = { ...EMPTY_PROVENANCE };
 	if (run.status === "completed") {
 		try {
 			const reviewRunDbId = livePipeline.getReviewRunDbId(runId);
@@ -174,13 +184,27 @@ async function withRealSummary(run, livePipeline, runId) {
 				findings = (
 					await livePipeline.repository.listFindingsForReviewRun(reviewRunDbId)
 				).length;
+				// llm-provider-admin Work Unit 8: which provider/model handled
+				// this run. A run completed before this change (or whose
+				// provenance was never recorded for any other reason) has NULL
+				// columns — `getReviewRunProvenance` already returns those as a
+				// graceful `{ llmProviderName: null, llmModelId: null }`, never an
+				// error, so the response always has this shape.
+				const runProvenance =
+					await livePipeline.repository.getReviewRunProvenance(reviewRunDbId);
+				if (runProvenance) {
+					provenance = {
+						llm_provider_name: runProvenance.llmProviderName,
+						llm_model_id: runProvenance.llmModelId,
+					};
+				}
 			}
 		} catch {
 			// Best-effort only: the run's own status is still authoritative
-			// even if the findings-count lookup fails transiently.
+			// even if the findings-count/provenance lookup fails transiently.
 		}
 	}
-	return { ...run, summary: { ...EMPTY_SUMMARY, findings } };
+	return { ...run, summary: { ...EMPTY_SUMMARY, findings }, ...provenance };
 }
 
 async function resolveFindingsView(runId) {
@@ -204,6 +228,7 @@ function reviewRunStatus(runId) {
 		failed_at: null,
 		error_summary: null,
 		summary: { pages: 0, sections: 0, findings: 0, reports: 0 },
+		...EMPTY_PROVENANCE,
 	};
 }
 

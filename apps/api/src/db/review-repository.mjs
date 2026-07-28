@@ -117,7 +117,15 @@ export function createReviewRepository({ client, connectionString } = {}) {
 
 		async updateReviewRunStatus(
 			reviewRunId,
-			{ status, startedAt, completedAt, failedAt, errorSummary } = {},
+			{
+				status,
+				startedAt,
+				completedAt,
+				failedAt,
+				errorSummary,
+				llmProviderName,
+				llmModelId,
+			} = {},
 		) {
 			return run(async (pgClient) => {
 				await pgClient.query(
@@ -126,7 +134,9 @@ export function createReviewRepository({ client, connectionString } = {}) {
 					   started_at = COALESCE($3, started_at),
 					   completed_at = COALESCE($4, completed_at),
 					   failed_at = COALESCE($5, failed_at),
-					   error_summary = COALESCE($6, error_summary)
+					   error_summary = COALESCE($6, error_summary),
+					   llm_provider_name = COALESCE($7, llm_provider_name),
+					   llm_model_id = COALESCE($8, llm_model_id)
 					 WHERE id = $1`,
 					[
 						reviewRunId,
@@ -135,8 +145,31 @@ export function createReviewRepository({ client, connectionString } = {}) {
 						completedAt ?? null,
 						failedAt ?? null,
 						errorSummary ?? null,
+						llmProviderName ?? null,
+						llmModelId ?? null,
 					],
 				);
+			});
+		},
+
+		/**
+		 * llm-provider-admin Work Unit 8: reads back which provider (name +
+		 * model id) handled a review run — `null`/`null` for runs where
+		 * provenance was never set (e.g. pre-existing runs from before this
+		 * change), never an error. Consumed by `api-contract.mjs`'s live GET
+		 * `/review-runs/{id}` path.
+		 */
+		async getReviewRunProvenance(reviewRunId) {
+			return run(async (pgClient) => {
+				const result = await pgClient.query(
+					"SELECT llm_provider_name, llm_model_id FROM review_run WHERE id = $1",
+					[reviewRunId],
+				);
+				if (result.rows.length === 0) return null;
+				return {
+					llmProviderName: result.rows[0].llm_provider_name,
+					llmModelId: result.rows[0].llm_model_id,
+				};
 			});
 		},
 

@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   buildResultsViewModel,
+  formatProviderLabel,
   isTerminalReviewRunStatus,
 } from '../src/app/results/results-view.ts';
 
@@ -18,6 +19,8 @@ function run(overrides = {}) {
     failed_at: null,
     error_summary: null,
     summary: { pages: 0, sections: 0, findings: 0, reports: 0 },
+    llm_provider_name: null,
+    llm_model_id: null,
     ...overrides,
   };
 }
@@ -72,9 +75,14 @@ test('buildResultsViewModel shows an in-progress status while non-terminal', () 
   });
 });
 
-test('buildResultsViewModel shows the persisted finding once completed', () => {
+test('buildResultsViewModel shows the persisted finding once completed, naming which provider handled it', () => {
   const view = buildResultsViewModel({
-    run: run({ status: 'completed', progress_stage: 'completed' }),
+    run: run({
+      status: 'completed',
+      progress_stage: 'completed',
+      llm_provider_name: 'claude',
+      llm_model_id: 'claude-sonnet-4-20250514',
+    }),
     findings: findingsResponse([
       {
         id: 'finding_1',
@@ -90,15 +98,25 @@ test('buildResultsViewModel shows the persisted finding once completed', () => {
   assert.equal(view.status, 'completed');
   assert.equal(view.items.length, 1);
   assert.equal(view.items[0].title, 'Missing APA citation');
+  assert.equal(view.providerLabel, 'claude (claude-sonnet-4-20250514)');
 });
 
-test('buildResultsViewModel shows a "no findings" state for a completed run with zero findings', () => {
+test('buildResultsViewModel shows a "no findings" state for a completed run with zero findings, still naming the provider', () => {
   const view = buildResultsViewModel({
-    run: run({ status: 'completed', progress_stage: 'completed' }),
+    run: run({
+      status: 'completed',
+      progress_stage: 'completed',
+      llm_provider_name: 'claude',
+      llm_model_id: 'claude-sonnet-4-20250514',
+    }),
     findings: findingsResponse([]),
     loadError: null,
   });
-  assert.deepEqual(view, { kind: 'no_findings', status: 'completed' });
+  assert.deepEqual(view, {
+    kind: 'no_findings',
+    status: 'completed',
+    providerLabel: 'claude (claude-sonnet-4-20250514)',
+  });
 });
 
 test('buildResultsViewModel treats a completed run with findings still loading as "no findings yet", not an error', () => {
@@ -107,7 +125,49 @@ test('buildResultsViewModel treats a completed run with findings still loading a
     findings: null,
     loadError: null,
   });
-  assert.deepEqual(view, { kind: 'no_findings', status: 'completed' });
+  assert.deepEqual(view, {
+    kind: 'no_findings',
+    status: 'completed',
+    providerLabel: 'Unknown provider',
+  });
+});
+
+test('buildResultsViewModel renders a graceful "unknown provider" state for a completed run with no provenance recorded (e.g. a pre-existing run from before this change) — never an error', () => {
+  const view = buildResultsViewModel({
+    run: run({
+      status: 'completed',
+      progress_stage: 'completed',
+      llm_provider_name: null,
+      llm_model_id: null,
+    }),
+    findings: findingsResponse([
+      {
+        id: 'finding_1',
+        title: 'Missing APA citation',
+        explanation: 'The excerpt paraphrases without citing.',
+        evidence_text: 'Studies show thesis quality improves with review.',
+        severity: 'medium',
+      },
+    ]),
+    loadError: null,
+  });
+  assert.equal(view.kind, 'findings');
+  assert.equal(view.providerLabel, 'Unknown provider');
+});
+
+test('formatProviderLabel combines provider name and model id when both are known', () => {
+  assert.equal(
+    formatProviderLabel({ providerName: 'claude', modelId: 'claude-sonnet-4-20250514' }),
+    'claude (claude-sonnet-4-20250514)',
+  );
+});
+
+test('formatProviderLabel falls back to "Unknown provider" when provenance is missing, never throws or shows blank text', () => {
+  assert.equal(formatProviderLabel({ providerName: null, modelId: null }), 'Unknown provider');
+  assert.equal(
+    formatProviderLabel({ providerName: 'claude', modelId: null }),
+    'claude (unknown model)',
+  );
 });
 
 test('buildResultsViewModel shows a failed run with its error summary, not findings', () => {

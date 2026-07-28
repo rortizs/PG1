@@ -82,12 +82,18 @@ explicit uncertainty flag) — never a finding with zero evidence rows.
 ### Requirement: Explicit Failure Handling
 The system MUST surface clear, non-silent errors for missing configuration,
 unreachable dependencies, or upstream API failures — never a silent no-op.
+Credential configuration errors MUST come from the DB-resolved active
+provider state, not a process-wide `ANTHROPIC_API_KEY` environment variable.
+(Previously: the sole configuration-error trigger was a missing
+`ANTHROPIC_API_KEY` env var; now it is the absence of an active
+`llm_provider_config` row, resolved per review-run-trigger.)
 
-#### Scenario: Missing ANTHROPIC_API_KEY
-- GIVEN `ANTHROPIC_API_KEY` is not set
-- WHEN the CAG check would run (startup or request time)
-- THEN the system returns/logs an explicit configuration error identifying the missing key
+#### Scenario: No active LLM provider configured
+- GIVEN no `llm_provider_config` row is marked active
+- WHEN the CAG check would run (review-run trigger time)
+- THEN the system returns/logs an explicit "no active LLM provider configured" error
 - AND no review run is silently marked `completed`
+- AND the system MUST NOT fall back to `ANTHROPIC_API_KEY` or fabricate a result
 
 #### Scenario: Postgres unreachable
 - GIVEN Postgres is not reachable
@@ -96,10 +102,11 @@ unreachable dependencies, or upstream API failures — never a silent no-op.
 - AND no partial rows are left in an ambiguous state
 
 #### Scenario: Claude API error or timeout
-- GIVEN the CAG call to Claude fails or times out
+- GIVEN the CAG call to Claude fails or times out using the DB-resolved active provider's key/model
 - WHEN the review run is processing
 - THEN the `review_run` transitions to `status: "failed"` with a populated `error_summary`
 - AND no finding is fabricated to compensate
+- AND the `error_summary` does not contain the raw API key
 
 ### Requirement: UI Visibility of Real Results
 The Angular app MUST display review-run status and, once complete, the

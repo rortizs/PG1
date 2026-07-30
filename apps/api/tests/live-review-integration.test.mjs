@@ -51,8 +51,29 @@ function startFakeWorker() {
 						filename: "thesis.pdf",
 						content_type: "application/pdf",
 						page_count: 1,
-						pages: [{ page_number: 1, section_title: null, text: "excerpt" }],
+						pages: [
+							{ page_number: 1, section_title: "CAPÍTULO 1", text: "excerpt" },
+						],
 						full_text: "Live wiring integration test thesis excerpt.",
+						// document-structure-extraction (precise-thesis-review-pipeline
+						// PR1): a real section spanning the document's one page, so this
+						// test can prove the orchestrator wires real, non-null
+						// document_page_id/document_section_id foreign keys.
+						sections: [
+							{
+								index: 0,
+								parent_index: null,
+								section_type: "chapter",
+								title: "CAPÍTULO 1",
+								normalized_title: "capitulo 1",
+								start_page_number: 1,
+								end_page_number: 1,
+								start_offset: 0,
+								end_offset: 10,
+								is_location_uncertain: false,
+								metadata: { detector: "heading_heuristic", confidence: 0.95 },
+							},
+						],
 					}),
 				);
 				return;
@@ -216,6 +237,45 @@ test(
 				findingsRes.body.items[0].evidence_text,
 				"Live wiring integration test thesis excerpt.",
 			);
+
+			// document-structure-extraction (precise-thesis-review-pipeline PR1):
+			// the real page/section the fake worker's /internal/extract response
+			// carried above are genuinely persisted, and the finding's evidence
+			// carries real (non-null) document_page_id/document_section_id FKs —
+			// not the `null` every caller passed before this pass.
+			const { default: pgForStructure } = await import("pg");
+			const structureClient = new pgForStructure.Client({ connectionString: databaseUrl });
+			await structureClient.connect();
+			try {
+				const runDbId = (
+					await import("../src/live-review-pipeline.mjs")
+				).getLivePipeline().getReviewRunDbId(runId);
+				const pageRows = await structureClient.query(
+					"SELECT count(*)::int AS count FROM document_page WHERE review_run_id = $1",
+					[runDbId],
+				);
+				assert.equal(pageRows.rows[0].count, 1);
+				const sectionRows = await structureClient.query(
+					"SELECT count(*)::int AS count FROM document_section WHERE review_run_id = $1",
+					[runDbId],
+				);
+				assert.equal(sectionRows.rows[0].count, 1);
+				const evidenceRows = await structureClient.query(
+					"SELECT document_page_id, document_section_id FROM evidence_snippet WHERE review_run_id = $1",
+					[runDbId],
+				);
+				assert.equal(evidenceRows.rows.length, 1);
+				assert.ok(
+					evidenceRows.rows[0].document_page_id != null,
+					"finding evidence must carry a real, non-null document_page_id",
+				);
+				assert.ok(
+					evidenceRows.rows[0].document_section_id != null,
+					"finding evidence must carry a real, non-null document_section_id",
+				);
+			} finally {
+				await structureClient.end();
+			}
 
 			// --- Scenario 2: ungrounded -> completed, zero findings (never fabricated) ---
 			worker.setNextReview(200, { finding: null });

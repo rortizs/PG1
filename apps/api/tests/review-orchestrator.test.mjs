@@ -229,6 +229,169 @@ test(
 );
 
 test(
+	"orchestrator inserts pages/sections before persisting any finding, and wires real documentPageId/documentSectionId (no live DB needed — a fake repository records call order and arguments)",
+	async () => {
+		const { createReviewOrchestrationProcessor } = await import(
+			"../src/jobs/review-orchestrator.mjs"
+		);
+
+		const calls = [];
+		const repository = {
+			insertReviewRun: async () => 101,
+			updateReviewRunStatus: async () => {},
+			insertDocumentPages: async (args) => {
+				calls.push({ fn: "insertDocumentPages", args });
+				return { ids: [201, 202], idByPageNumber: { 1: 201, 2: 202 } };
+			},
+			insertDocumentSections: async (args) => {
+				calls.push({ fn: "insertDocumentSections", args });
+				return { ids: [301], idByIndex: { 0: 301 } };
+			},
+			persistFinding: async (args) => {
+				calls.push({ fn: "persistFinding", args });
+				return { findingId: 401, evidenceIds: [501] };
+			},
+		};
+		const lifecycle = { transitionReviewRun: () => {}, markJobFailed: () => {} };
+
+		const processor = createReviewOrchestrationProcessor({
+			repository,
+			lifecycle,
+			resolveThesisDocumentDbId: async () => 1,
+			extractThesisText: async () => ({
+				fullText: "Full extracted text.",
+				pages: [
+					{ page_number: 1, section_title: null, text: "Page one." },
+					{ page_number: 2, section_title: "CAPÍTULO 1", text: "Page two." },
+				],
+				sections: [
+					{
+						index: 0,
+						parent_index: null,
+						section_type: "chapter",
+						title: "CAPÍTULO 1",
+						normalized_title: "capitulo 1",
+						start_page_number: 2,
+						end_page_number: 2,
+						start_offset: 0,
+						end_offset: 10,
+						is_location_uncertain: false,
+						metadata: {},
+					},
+				],
+				content_type: "application/pdf",
+			}),
+			runCagReview: async () => ({
+				finding: {
+					title: "Missing APA citation",
+					explanation: "Paraphrases without citing.",
+					recommendation: "Add a citation.",
+					evidence_text: "Page two.",
+					page_number: 2,
+					section_title: "CAPÍTULO 1",
+					normative_source_ref: "lineamientos_ingenieria_sistemas.txt",
+					producer_id: "claude-fake",
+				},
+			}),
+			resolveNormativeSourceId: async () => null,
+		});
+
+		await processor({
+			review_run_id: "run_1",
+			thesis_document_id: "doc_1",
+		});
+
+		const callOrder = calls.map((c) => c.fn);
+		assert.deepEqual(callOrder, [
+			"insertDocumentPages",
+			"insertDocumentSections",
+			"persistFinding",
+		]);
+
+		const pagesCall = calls[0].args;
+		assert.equal(pagesCall.pages.length, 2);
+		assert.equal(pagesCall.pages[0].pageNumber, 1);
+		assert.equal(pagesCall.pages[1].pageNumber, 2);
+
+		const sectionsCall = calls[1].args;
+		assert.equal(sectionsCall.sections.length, 1);
+		assert.equal(sectionsCall.sections[0].index, 0);
+		assert.equal(sectionsCall.sections[0].sectionType, "chapter");
+
+		const persistCall = calls[2].args;
+		// Real FK ids resolved from insertDocumentPages/insertDocumentSections'
+		// returned maps — never the pre-existing-behavior `null`.
+		assert.equal(persistCall.evidence[0].documentPageId, 202);
+		assert.equal(persistCall.evidence[0].documentSectionId, 301);
+	},
+);
+
+test(
+	"a review run with zero detected sections still persists pages and findings with documentSectionId null — never crashes",
+	async () => {
+		const { createReviewOrchestrationProcessor } = await import(
+			"../src/jobs/review-orchestrator.mjs"
+		);
+
+		const calls = [];
+		const repository = {
+			insertReviewRun: async () => 102,
+			updateReviewRunStatus: async () => {},
+			insertDocumentPages: async (args) => {
+				calls.push({ fn: "insertDocumentPages", args });
+				return { ids: [211], idByPageNumber: { 1: 211 } };
+			},
+			insertDocumentSections: async (args) => {
+				calls.push({ fn: "insertDocumentSections", args });
+				return { ids: [], idByIndex: {} };
+			},
+			persistFinding: async (args) => {
+				calls.push({ fn: "persistFinding", args });
+				return { findingId: 402, evidenceIds: [502] };
+			},
+		};
+		const lifecycle = { transitionReviewRun: () => {}, markJobFailed: () => {} };
+
+		const processor = createReviewOrchestrationProcessor({
+			repository,
+			lifecycle,
+			resolveThesisDocumentDbId: async () => 1,
+			extractThesisText: async () => ({
+				fullText: "Full extracted text.",
+				pages: [{ page_number: 1, section_title: null, text: "Page one." }],
+				sections: [],
+				content_type: "application/pdf",
+			}),
+			runCagReview: async () => ({
+				finding: {
+					title: "Missing APA citation",
+					explanation: "Paraphrases without citing.",
+					recommendation: "Add a citation.",
+					evidence_text: "Page one.",
+					page_number: 1,
+					section_title: null,
+					normative_source_ref: "lineamientos_ingenieria_sistemas.txt",
+					producer_id: "claude-fake",
+				},
+			}),
+			resolveNormativeSourceId: async () => null,
+		});
+
+		await processor({
+			review_run_id: "run_2",
+			thesis_document_id: "doc_2",
+		});
+
+		const sectionsCall = calls.find((c) => c.fn === "insertDocumentSections").args;
+		assert.deepEqual(sectionsCall.sections, []);
+
+		const persistCall = calls.find((c) => c.fn === "persistFinding").args;
+		assert.equal(persistCall.evidence[0].documentPageId, 211);
+		assert.equal(persistCall.evidence[0].documentSectionId, null);
+	},
+);
+
+test(
 	"defaultRunCagReview forwards provider_name/api_key/model_id to the worker when supplied, and omits them entirely when not (backward compatible)",
 	async () => {
 		const worker = await startFakeWorker();

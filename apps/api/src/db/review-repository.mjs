@@ -174,6 +174,115 @@ export function createReviewRepository({ client, connectionString } = {}) {
 		},
 
 		/**
+		 * Persists every extracted page as a real `document_page` row inside a
+		 * single transaction, in the given order (design.md D3). `pages[]`
+		 * items are `{ pageNumber, text }`; `extractionMethod`/
+		 * `provenanceConfidence`/`pageMetadata` are call-level defaults applied
+		 * uniformly to every page (a single extraction run uses one method).
+		 * Returns both the raw ordered `ids` and an `idByPageNumber` lookup map
+		 * used to wire real `document_page_id` foreign keys into findings.
+		 */
+		async insertDocumentPages({
+			reviewRunId,
+			thesisDocumentId,
+			pages,
+			extractionMethod = "pdf_text",
+			provenanceConfidence = null,
+			pageMetadata = {},
+		}) {
+			return run(async (pgClient) => {
+				await pgClient.query("BEGIN");
+				try {
+					const ids = [];
+					const idByPageNumber = {};
+					for (const page of pages) {
+						const pageNumber = page.pageNumber ?? null;
+						const inserted = await pgClient.query(
+							`INSERT INTO document_page
+							   (thesis_document_id, review_run_id, page_number, text_content, extraction_method, provenance_confidence, is_page_number_uncertain, metadata)
+							 VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
+							[
+								thesisDocumentId,
+								reviewRunId,
+								pageNumber,
+								page.text ?? "",
+								extractionMethod,
+								provenanceConfidence,
+								Boolean(page.isPageNumberUncertain ?? pageNumber == null),
+								JSON.stringify(pageMetadata),
+							],
+						);
+						const id = toId(inserted.rows[0].id);
+						ids.push(id);
+						if (pageNumber != null) idByPageNumber[pageNumber] = id;
+					}
+					await pgClient.query("COMMIT");
+					return { ids, idByPageNumber };
+				} catch (error) {
+					await pgClient.query("ROLLBACK");
+					throw error;
+				}
+			});
+		},
+
+		/**
+		 * Persists every detected section as a real `document_section` row
+		 * inside a single transaction. `sections[]` MUST be supplied in
+		 * document order — a parent heading always precedes its children
+		 * (design.md D2's level-stack invariant) — so each section's
+		 * `parentIndex` can be resolved against the `idByIndex` map built so
+		 * far. A `parentIndex` that has not already been inserted (an
+		 * out-of-order violation) throws rather than silently orphaning the
+		 * section (never writes a row with a dangling/guessed parent).
+		 */
+		async insertDocumentSections({ reviewRunId, sections }) {
+			return run(async (pgClient) => {
+				await pgClient.query("BEGIN");
+				try {
+					const ids = [];
+					const idByIndex = {};
+					for (const section of sections) {
+						let parentSectionId = null;
+						if (section.parentIndex != null) {
+							if (!(section.parentIndex in idByIndex)) {
+								throw new Error(
+									`insertDocumentSections: parentIndex ${section.parentIndex} for section index ${section.index} was not already inserted — sections must be supplied in document order (parent before child).`,
+								);
+							}
+							parentSectionId = idByIndex[section.parentIndex];
+						}
+						const inserted = await pgClient.query(
+							`INSERT INTO document_section
+							   (review_run_id, parent_section_id, section_type, title, normalized_title, start_page_number, end_page_number, start_offset, end_offset, is_location_uncertain, metadata)
+							 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`,
+							[
+								reviewRunId,
+								parentSectionId,
+								section.sectionType,
+								section.title ?? null,
+								section.normalizedTitle ?? null,
+								section.startPageNumber ?? null,
+								section.endPageNumber ?? null,
+								section.startOffset ?? null,
+								section.endOffset ?? null,
+								Boolean(section.isLocationUncertain),
+								JSON.stringify(section.metadata ?? {}),
+							],
+						);
+						const id = toId(inserted.rows[0].id);
+						ids.push(id);
+						idByIndex[section.index] = id;
+					}
+					await pgClient.query("COMMIT");
+					return { ids, idByIndex };
+				} catch (error) {
+					await pgClient.query("ROLLBACK");
+					throw error;
+				}
+			});
+		},
+
+		/**
 		 * Persists exactly one finding with its evidence, evidence-first, inside
 		 * a single transaction. Never writes a `finding` row when `evidence` is
 		 * empty or any snippet lacks real text/location provenance — throws

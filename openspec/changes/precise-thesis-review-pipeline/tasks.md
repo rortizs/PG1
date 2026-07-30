@@ -57,30 +57,30 @@ stand with cag_review.py still doing one call. PR5 remains the single highest-ri
 
 ### 1. Heading-heuristic section detection
 
-- [ ] RED: Extend `services/worker/tests/test_extract.py` with the D2 pattern table (chapter/GT-keyword/numbered/ALL-CAPS regex rows incl. accent-folded `CAPÌTULO`/`TEORICO`/`BIBLIOGRAFIA`), TOC dotted-leader exclusion, and confidence/`is_location_uncertain` assignment — asserts current extraction has no section-boundary detection at all (spec: PDF Per-Page Section Detection, Explicit Uncertainty Flagging).
-- [ ] GREEN: Implement heading detection in `services/worker/app/extraction.py`, emitting `ExtractedSection` with `title`/`normalized_title`/`start_page_number`/`end_page_number`/`parent_section_id` via level-stack/`start_offset`/`end_offset`/`is_location_uncertain`.
-- [ ] TRIANGULATE: Zero-headings document → zero sections, no crash. Ambiguous ALL-CAPS line inside a references block is excluded, not misdetected.
-- [ ] REFACTOR: Extract the pattern table into a single ordered list shared by detection and tests.
-- [ ] Verify: `pnpm --dir services/worker test` green.
-- [ ] Rollback: revert `extraction.py`'s detection additions; `/internal/extract` keeps returning pages only.
+- [x] RED: Extend `services/worker/tests/test_extract.py` with the D2 pattern table (chapter/GT-keyword/numbered/ALL-CAPS regex rows incl. accent-folded `CAPÌTULO`/`TEORICO`/`BIBLIOGRAFIA`), TOC dotted-leader exclusion, and confidence/`is_location_uncertain` assignment — asserts current extraction has no section-boundary detection at all (spec: PDF Per-Page Section Detection, Explicit Uncertainty Flagging).
+- [x] GREEN: Implement heading detection in `services/worker/app/extraction.py`, emitting `ExtractedSection` with `title`/`normalized_title`/`start_page_number`/`end_page_number`/`parent_section_id` via level-stack/`start_offset`/`end_offset`/`is_location_uncertain`.
+- [x] TRIANGULATE: Zero-headings document → zero sections, no crash. Ambiguous ALL-CAPS line inside a references block is excluded, not misdetected.
+- [x] REFACTOR: Extract the pattern table into a single ordered list shared by detection and tests.
+- [x] Verify: `pnpm --dir services/worker test` green.
+- [x] Rollback: revert `extraction.py`'s detection additions; `/internal/extract` keeps returning pages only.
 
 ### 2. `insertDocumentPages`/`insertDocumentSections`
 
-- [ ] RED: Add `apps/api/tests/review-repository.test.mjs` cases: N pages in → N `document_page` rows with real `page_number`; M sections in document order → M `document_section` rows with `parentIndex` resolved to real FK ids (spec: Structural Persistence to document_page and document_section).
-- [ ] GREEN: Implement both functions per D3 (single BEGIN/COMMIT, ordered `INSERT ... RETURNING id`, `idByPageNumber`/`idByIndex` maps).
-- [ ] TRIANGULATE: Parent-before-child ordering violation raises, not silently orphans a section.
-- [ ] REFACTOR: Share the BEGIN/COMMIT batching helper if one already exists in the file.
-- [ ] Verify: `pnpm --dir apps/api test` green against dockerized pg.
-- [ ] Rollback: delete both functions; no migration to unwind.
+- [x] RED: Add `apps/api/tests/review-repository.test.mjs` cases: N pages in → N `document_page` rows with real `page_number`; M sections in document order → M `document_section` rows with `parentIndex` resolved to real FK ids (spec: Structural Persistence to document_page and document_section).
+- [x] GREEN: Implement both functions per D3 (single BEGIN/COMMIT, ordered `INSERT ... RETURNING id`, `idByPageNumber`/`idByIndex` maps).
+- [x] TRIANGULATE: Parent-before-child ordering violation raises, not silently orphans a section.
+- [x] REFACTOR: Share the BEGIN/COMMIT batching helper if one already exists in the file.
+- [x] Verify: `pnpm --dir apps/api test` green against dockerized pg.
+- [x] Rollback: delete both functions; no migration to unwind.
 
 ### 3. `/internal/extract` sections + real FK wiring into `persistFinding`
 
-- [ ] RED: Extend `test_extract.py`'s endpoint-shape test and `apps/api/tests/review-orchestrator.test.mjs` to assert `/internal/extract`'s response carries `sections[]` and that the orchestrator calls `insertDocumentPages`/`insertDocumentSections` before persisting any finding (currently `documentPageId`/`documentSectionId` are always `null`).
-- [ ] GREEN: `main.py`'s extract route returns `sections`; `review-orchestrator.mjs` inserts pages/sections first, then wires `persistFinding.documentPageId`/`documentSectionId` from the returned id maps.
-- [ ] TRIANGULATE: A run with zero detected sections still persists pages and findings with `documentSectionId: null` but never crashes.
-- [ ] REFACTOR: N/A — wiring only.
-- [ ] Verify: `pnpm --dir apps/api test && pnpm --dir services/worker test` green; manual run confirms non-null FK ids in `document_page`/`document_section`.
-- [ ] Rollback: revert `main.py`/`review-orchestrator.mjs` FK-wiring diff; findings return to `null` FKs (today's behavior).
+- [x] RED: Extend `test_extract.py`'s endpoint-shape test and `apps/api/tests/review-orchestrator.test.mjs` to assert `/internal/extract`'s response carries `sections[]` and that the orchestrator calls `insertDocumentPages`/`insertDocumentSections` before persisting any finding (currently `documentPageId`/`documentSectionId` are always `null`).
+- [x] GREEN: `main.py`'s extract route returns `sections`; `review-orchestrator.mjs` inserts pages/sections first, then wires `persistFinding.documentPageId`/`documentSectionId` from the returned id maps.
+- [x] TRIANGULATE: A run with zero detected sections still persists pages and findings with `documentSectionId: null` but never crashes.
+- [x] REFACTOR: N/A — wiring only.
+- [x] Verify: `pnpm --dir apps/api test && pnpm --dir services/worker test` green; manual run confirms non-null FK ids in `document_page`/`document_section`.
+- [x] Rollback: revert `main.py`/`review-orchestrator.mjs` FK-wiring diff; findings return to `null` FKs (today's behavior).
 
 ### 4. Deterministic rule engine
 

@@ -50,6 +50,34 @@ export async function defaultRunCagReview({
 }
 
 /**
+ * Picks the most specific (smallest page-span) inserted section whose real
+ * page range contains `pageNumber` — used to resolve a finding's
+ * `documentSectionId` for the current (pre-chunked, PR1) single-finding
+ * review path, which reports `page_number`/`section_title` but not yet a
+ * `section_index` (that field is introduced by the chunked review loop,
+ * design.md's Work Unit 8 / PR5). `sections` is `{ id, startPageNumber,
+ * endPageNumber }[]`. Returns `null` when no section covers the page (or
+ * `pageNumber` itself is `null`) — never guesses.
+ */
+function findSectionIdForPage(sections, pageNumber) {
+	if (pageNumber == null) return null;
+	let bestId = null;
+	let bestSpan = Infinity;
+	for (const section of sections) {
+		if (section.id == null || section.startPageNumber == null) continue;
+		const start = section.startPageNumber;
+		const end = section.endPageNumber ?? start;
+		if (pageNumber < start || pageNumber > end) continue;
+		const span = end - start;
+		if (span < bestSpan) {
+			bestId = section.id;
+			bestSpan = span;
+		}
+	}
+	return bestId;
+}
+
+/**
  * Builds the synchronous processor that drives one review run end to end:
  * extract -> CAG review -> persist. Never rethrows — any failure (worker
  * unreachable, Claude error/timeout, malformed provider response) is
@@ -99,6 +127,54 @@ export function createReviewOrchestrationProcessor({
 			const extraction = await extractThesisText({ thesisDocumentId });
 
 			lifecycle.transitionReviewRun(lifecycleRunId, "segmenting");
+
+			// Document Structure Extraction (precise-thesis-review-pipeline PR1):
+			// real `document_page`/`document_section` rows are persisted BEFORE
+			// any finding, so `persistFinding`'s optional `documentPageId`/
+			// `documentSectionId` params can be wired to real FK ids instead of
+			// the `null` every caller passed before this pass. `extraction.pages`/
+			// `.sections` are absent/empty for callers that don't yet report
+			// structure (e.g. every pre-existing fake `extractThesisText` in this
+			// test suite) — both inserts safely no-op on an empty array, never a
+			// crash (design.md's "zero detected sections still persists pages and
+			// findings with documentSectionId: null" requirement).
+			const extractionPages = extraction.pages ?? [];
+			const extractionSections = extraction.sections ?? [];
+			const extractionMethod =
+				extraction.content_type === "application/pdf" ? "pdf_text" : "docx";
+
+			const { idByPageNumber } = await repository.insertDocumentPages({
+				reviewRunId: reviewRunDbId,
+				thesisDocumentId: thesisDocumentDbId,
+				pages: extractionPages.map((page) => ({
+					pageNumber: page.page_number ?? null,
+					text: page.text ?? "",
+				})),
+				extractionMethod,
+			});
+
+			const { idByIndex } = await repository.insertDocumentSections({
+				reviewRunId: reviewRunDbId,
+				sections: extractionSections.map((section) => ({
+					index: section.index,
+					parentIndex: section.parent_index ?? null,
+					sectionType: section.section_type,
+					title: section.title ?? null,
+					normalizedTitle: section.normalized_title ?? null,
+					startPageNumber: section.start_page_number ?? null,
+					endPageNumber: section.end_page_number ?? null,
+					startOffset: section.start_offset ?? null,
+					endOffset: section.end_offset ?? null,
+					isLocationUncertain: Boolean(section.is_location_uncertain),
+					metadata: section.metadata ?? {},
+				})),
+			});
+			const insertedSections = extractionSections.map((section) => ({
+				id: idByIndex[section.index] ?? null,
+				startPageNumber: section.start_page_number ?? null,
+				endPageNumber: section.end_page_number ?? null,
+			}));
+
 			lifecycle.transitionReviewRun(lifecycleRunId, "validating");
 			lifecycle.transitionReviewRun(lifecycleRunId, "rag_reviewing");
 
@@ -111,6 +187,14 @@ export function createReviewOrchestrationProcessor({
 			if (finding) {
 				const normativeSourceId = await resolveNormativeSourceId(
 					finding.normative_source_ref,
+				);
+				const documentPageId =
+					finding.page_number != null
+						? (idByPageNumber[finding.page_number] ?? null)
+						: null;
+				const documentSectionId = findSectionIdForPage(
+					insertedSections,
+					finding.page_number ?? null,
 				);
 				await repository.persistFinding({
 					reviewRunId: reviewRunDbId,
@@ -130,6 +214,8 @@ export function createReviewOrchestrationProcessor({
 							evidenceText: finding.evidence_text,
 							pageNumber: finding.page_number ?? null,
 							sectionTitle: finding.section_title ?? null,
+							documentPageId,
+							documentSectionId,
 							isPageUncertain:
 								finding.page_number == null && finding.section_title == null,
 						},

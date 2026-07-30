@@ -172,6 +172,139 @@ test(
 );
 
 test(
+	"insertDocumentPages/insertDocumentSections persist real page/section rows with resolved parent FK ids",
+	async (t) => {
+		const client = await connectOrSkip(t);
+		if (!client) return;
+
+		const migrate = await import("../src/db/migrate.mjs");
+		const { createReviewRepository } = await import(
+			"../src/db/review-repository.mjs"
+		);
+
+		try {
+			await migrate.migrateDown({ client }).catch(() => {});
+			await migrate.migrateUp({ client });
+
+			const repository = createReviewRepository({ client });
+
+			const thesisDocumentId = await repository.insertThesisDocument({
+				originalFilename: "thesis.pdf",
+				contentType: "application/pdf",
+				fileSizeBytes: 999,
+				storageKey: "thesis-documents/sections/thesis.pdf",
+				sha256: "e".repeat(64),
+				uploadedByUserId: 1,
+			});
+			const reviewRunId = await repository.insertReviewRun({ thesisDocumentId });
+
+			// N pages in -> N document_page rows with real page_number.
+			const pagesResult = await repository.insertDocumentPages({
+				reviewRunId,
+				thesisDocumentId,
+				pages: [
+					{ pageNumber: 1, text: "Page one text." },
+					{ pageNumber: 2, text: "Page two text." },
+					{ pageNumber: 3, text: "Page three text." },
+				],
+				extractionMethod: "pdf_text",
+			});
+			assert.equal(pagesResult.ids.length, 3);
+			for (const id of pagesResult.ids) assert.ok(Number.isInteger(id));
+			assert.deepEqual(Object.keys(pagesResult.idByPageNumber).sort(), [
+				"1",
+				"2",
+				"3",
+			]);
+
+			const pageRows = await client.query(
+				"SELECT count(*)::int AS count FROM document_page WHERE review_run_id = $1",
+				[reviewRunId],
+			);
+			assert.equal(pageRows.rows[0].count, 3);
+
+			// M sections in document order -> M document_section rows, each
+			// referencing the document_page it starts on via a resolved parent FK.
+			const sectionsResult = await repository.insertDocumentSections({
+				reviewRunId,
+				sections: [
+					{
+						index: 0,
+						parentIndex: null,
+						sectionType: "chapter",
+						title: "CAPÍTULO 1",
+						normalizedTitle: "capitulo 1",
+						startPageNumber: 1,
+						endPageNumber: 3,
+						startOffset: 0,
+						endOffset: 10,
+						isLocationUncertain: false,
+						metadata: { detector: "heading_heuristic", confidence: 0.95 },
+					},
+					{
+						index: 1,
+						parentIndex: 0,
+						sectionType: "section",
+						title: "1.1 Subsection",
+						normalizedTitle: "1.1 subsection",
+						startPageNumber: 2,
+						endPageNumber: 3,
+						startOffset: 20,
+						endOffset: 35,
+						isLocationUncertain: false,
+						metadata: {},
+					},
+				],
+			});
+			assert.equal(sectionsResult.ids.length, 2);
+			assert.deepEqual(Object.keys(sectionsResult.idByIndex).sort(), ["0", "1"]);
+
+			const sectionRows = await client.query(
+				"SELECT id, parent_section_id, title FROM document_section WHERE review_run_id = $1 ORDER BY id",
+				[reviewRunId],
+			);
+			assert.equal(sectionRows.rows.length, 2);
+			assert.equal(sectionRows.rows[0].parent_section_id, null);
+			assert.equal(
+				Number(sectionRows.rows[1].parent_section_id),
+				sectionsResult.idByIndex[0],
+			);
+
+			// TRIANGULATE: a parent-before-child ordering violation raises, not
+			// silently orphans a section.
+			await assert.rejects(() =>
+				repository.insertDocumentSections({
+					reviewRunId,
+					sections: [
+						{
+							index: 0,
+							parentIndex: 5, // never inserted — out-of-order reference
+							sectionType: "section",
+							title: "Orphan",
+							normalizedTitle: "orphan",
+							startPageNumber: 1,
+							endPageNumber: 1,
+							startOffset: 0,
+							endOffset: 6,
+							isLocationUncertain: false,
+							metadata: {},
+						},
+					],
+				}),
+			);
+			const orphanRows = await client.query(
+				"SELECT count(*)::int AS count FROM document_section WHERE title = 'Orphan'",
+			);
+			assert.equal(orphanRows.rows[0].count, 0);
+
+			await migrate.migrateDown({ client });
+		} finally {
+			await client.end();
+		}
+	},
+);
+
+test(
 	"review-repository rejects a candidate finding with zero evidence rows — never persists it",
 	async (t) => {
 		const client = await connectOrSkip(t);

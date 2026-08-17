@@ -8,6 +8,7 @@ export const ACCEPTED_THESIS_CONTENT_TYPES = new Set([
 	"application/pdf",
 	"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 ]);
+export const MAX_THESIS_FILE_SIZE_BYTES = 20 * 1024 * 1024;
 
 export async function processThesisDocumentUpload({
 	files,
@@ -109,6 +110,12 @@ function validateContentBytes(file, content) {
 		issues.push({
 			field: "files[0].size",
 			message: "Declared file size must match actual content bytes.",
+		});
+	}
+	if (content.byteLength > MAX_THESIS_FILE_SIZE_BYTES) {
+		issues.push({
+			field: "files[0].size",
+			message: "Thesis file size must be 20 MB or smaller.",
 		});
 	}
 	if (!issues.length) return null;

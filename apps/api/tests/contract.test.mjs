@@ -2,6 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { handleApiRequest, listApiRoutes } from "../src/api-contract.mjs";
+import { _resetLiveReviewPipelineForTests } from "../src/live-review-pipeline.mjs";
+import { processThesisDocumentUpload } from "../src/thesis-documents/upload-service.mjs";
 
 const STANDARD_ERROR_KEYS = [
 	"error",
@@ -43,7 +45,30 @@ test("API contract exposes the required versioned resource routes", () => {
 		"GET /api/v1/review-runs/{run_id}",
 		"GET /api/v1/review-runs/{run_id}/findings",
 		"GET /api/v1/review-runs/{run_id}/report-artifacts",
+		"GET /api/v1/review-board/cards",
+		"PATCH /api/v1/review-board/cards/{card_id}/priority",
+		"POST /api/v1/review-board/cards/{card_id}/approval",
 	]);
+});
+
+test("GET /api/v1/review-board/cards returns an explicit empty board when no live repository is configured", async () => {
+	const originalDatabaseUrl = process.env.DATABASE_URL;
+	delete process.env.DATABASE_URL;
+	_resetLiveReviewPipelineForTests();
+	try {
+		const response = await handleApiRequest({
+			method: "GET",
+			path: "/api/v1/review-board/cards",
+		});
+
+		assert.equal(response.status, 200);
+		expectPaginatedList(response.body);
+		assert.deepEqual(response.body.items, []);
+	} finally {
+		if (originalDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+		else process.env.DATABASE_URL = originalDatabaseUrl;
+		_resetLiveReviewPipelineForTests();
+	}
 });
 
 test("POST /api/v1/thesis-documents returns a contract-valid upload stub", async () => {
@@ -57,6 +82,59 @@ test("POST /api/v1/thesis-documents returns a contract-valid upload stub", async
 	assert.equal(response.body.status, "upload_stub");
 	assert.equal(response.body.review_eligible, false);
 	assert.match(response.body.id, /^doc_/);
+});
+
+test("server-side upload validation rejects files larger than 20 MB before storage", async () => {
+	let putObjectCalls = 0;
+	const maxBytes = 20 * 1024 * 1024;
+	const response = await processThesisDocumentUpload({
+		files: [
+			{
+				filename: "too-large.pdf",
+				contentType: "application/pdf",
+				content: Buffer.alloc(maxBytes + 1),
+				size: maxBytes + 1,
+			},
+		],
+		storage: {
+			keyPrefix: "test-thesis-documents",
+			async putObject() {
+				putObjectCalls += 1;
+				throw new Error("oversized upload should not be stored");
+			},
+		},
+	});
+
+	expectStandardError(response, 422);
+	assert.equal(response.body.error, "validation_error");
+	assert.equal(response.body.details.review_run_created, false);
+	assert.equal(putObjectCalls, 0);
+});
+
+test("server-side upload validation accepts a PDF exactly at the 20 MB boundary", async () => {
+	let putObjectCalls = 0;
+	const maxBytes = 20 * 1024 * 1024;
+	const response = await processThesisDocumentUpload({
+		files: [
+			{
+				filename: "boundary.pdf",
+				contentType: "application/pdf",
+				content: Buffer.alloc(maxBytes),
+				size: maxBytes,
+			},
+		],
+		storage: {
+			keyPrefix: "test-thesis-documents",
+			async putObject({ key }) {
+				putObjectCalls += 1;
+				return { key, provider: "memory" };
+			},
+		},
+	});
+
+	assert.equal(response.status, 201);
+	assert.equal(response.body.file_size_bytes, maxBytes);
+	assert.equal(putObjectCalls, 1);
 });
 
 test("GET /api/v1/thesis-documents returns a bounded paginated list with filters", async () => {
@@ -119,7 +197,7 @@ test("GET /api/v1/review-runs/{run_id}/findings returns bounded findings list wi
 	assert.deepEqual(response.body.filters, { type: "apa", severity: "medium" });
 });
 
-test("GET /api/v1/review-runs/{run_id}/report-artifacts returns a report artifact list stub", async () => {
+test("GET /api/v1/review-runs/{run_id}/report-artifacts returns pending for an unknown run", async () => {
 	const response = await handleApiRequest({
 		method: "GET",
 		path: "/api/v1/review-runs/run_contract/report-artifacts",
@@ -131,8 +209,51 @@ test("GET /api/v1/review-runs/{run_id}/report-artifacts returns a report artifac
 	assert.equal(response.body.status, "pending");
 });
 
+test("GET /api/v1/review-runs/{run_id}/report-artifacts returns a downloadable Markdown report for an existing run with no findings", async () => {
+	const runResponse = await handleApiRequest({
+		method: "POST",
+		path: "/api/v1/thesis-documents/doc_report_contract/review-runs",
+		body: { pipelineVersion: "pipeline-report-contract" },
+	});
+	assert.equal(runResponse.status, 202);
+	const runId = runResponse.body.id;
+
+	const response = await handleApiRequest({
+		method: "GET",
+		path: `/api/v1/review-runs/${runId}/report-artifacts`,
+	});
+
+	assert.equal(response.status, 200);
+	assert.equal(response.body.review_run_id, runId);
+	assert.equal(response.body.status, "available");
+	assert.equal(response.body.items.length, 1);
+	assert.deepEqual(
+		Object.keys(response.body.items[0]).sort(),
+		["content", "content_type", "filename", "id", "kind"].sort(),
+	);
+	const [artifact] = response.body.items;
+	assert.equal(artifact.id, `${runId}-markdown-report`);
+	assert.equal(artifact.kind, "markdown");
+	assert.equal(artifact.filename, `review-run-${runId}-report.md`);
+	assert.equal(artifact.content_type, "text/markdown; charset=utf-8");
+	assert.match(artifact.content, /^# Thesis Review Report\n/);
+	assert.match(artifact.content, /## Executive Summary/);
+	assert.match(artifact.content, /## Overall Verdict \/ Readiness/);
+	assert.match(artifact.content, /## Finding Counts by Severity/);
+	assert.match(artifact.content, /## Detailed Findings/);
+	assert.match(artifact.content, /## Evidence/);
+	assert.match(artifact.content, /## Recommended Actions/);
+	assert.match(
+		artifact.content,
+		/No findings were recorded for this review run\./,
+	);
+});
+
 test("unsupported routes return the standard error shape", async () => {
-	const response = await handleApiRequest({ method: "GET", path: "/api/v1/unknown" });
+	const response = await handleApiRequest({
+		method: "GET",
+		path: "/api/v1/unknown",
+	});
 
 	expectStandardError(response, 404);
 	assert.equal(response.body.error, "not_found");

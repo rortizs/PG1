@@ -1,7 +1,8 @@
-import { Module } from '@nestjs/common';
-import { AdminController } from './admin/admin.controller.js';
-import { ReviewRunsController } from './review-runs/review-runs.controller.js';
-import { ThesisDocumentsController } from './thesis-documents/thesis-documents.controller.js';
+import { Module } from "@nestjs/common";
+import { AdminController } from "./admin/admin.controller.js";
+import { ReviewBoardController } from "./review-board/review-board.controller.js";
+import { ReviewRunsController } from "./review-runs/review-runs.controller.js";
+import { ThesisDocumentsController } from "./thesis-documents/thesis-documents.controller.js";
 
 /**
  * Real NestJS module wiring for the PG1 API contract slice.
@@ -13,6 +14,11 @@ import { ThesisDocumentsController } from './thesis-documents/thesis-documents.c
  * byte-untouched.
  */
 @Module({
-  controllers: [ThesisDocumentsController, ReviewRunsController, AdminController],
+	controllers: [
+		ThesisDocumentsController,
+		ReviewRunsController,
+		ReviewBoardController,
+		AdminController,
+	],
 })
 export class Pg1ApiModule {}

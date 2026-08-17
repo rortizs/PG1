@@ -27,13 +27,21 @@ const ROUTES = [
 	["GET", "/api/v1/review-runs/{run_id}"],
 	["GET", "/api/v1/review-runs/{run_id}/findings"],
 	["GET", "/api/v1/review-runs/{run_id}/report-artifacts"],
+	["GET", "/api/v1/review-board/cards"],
+	["PATCH", "/api/v1/review-board/cards/{card_id}/priority"],
+	["POST", "/api/v1/review-board/cards/{card_id}/approval"],
 ];
 
 export function listApiRoutes() {
 	return ROUTES.map(([method, path]) => ({ method, path }));
 }
 
-export async function handleApiRequest({ method, path, query = {}, body = {} }) {
+export async function handleApiRequest({
+	method,
+	path,
+	query = {},
+	body = {},
+}) {
 	const normalizedMethod = method.toUpperCase();
 	const pagination = parsePagination(query);
 	if (pagination.error) return pagination.error;
@@ -56,6 +64,7 @@ export async function handleApiRequest({ method, path, query = {}, body = {} }) 
 						filename: result.body.original_filename,
 						fileSizeBytes: result.body.file_size_bytes,
 						uploaderUserId: result.body.uploaded_by_user_id,
+						metadata: result.body.metadata,
 					});
 				} catch (error) {
 					return errorResponse(
@@ -77,6 +86,90 @@ export async function handleApiRequest({ method, path, query = {}, body = {} }) 
 		);
 	}
 
+	if (normalizedMethod === "GET" && path === "/api/v1/review-board/cards") {
+		const repository = resolveBoardRepository();
+		const items = repository ? await repository.listReviewBoardCards() : [];
+		return ok(
+			paginated(
+				items,
+				pagination.value,
+				pickFilters(query, ["state", "priority"]),
+			),
+		);
+	}
+
+	const priorityUpdate = path.match(
+		/^\/api\/v1\/review-board\/cards\/([^/]+)\/priority$/,
+	);
+	if (normalizedMethod === "PATCH" && priorityUpdate) {
+		const repository = resolveBoardRepository();
+		if (!repository) return boardRepositoryUnavailable();
+		const priority = String(body.priority ?? "").toLowerCase();
+		if (!["low", "normal", "urgent"].includes(priority)) {
+			return errorResponse(
+				422,
+				"validation_error",
+				"Priority must be low, normal, or urgent.",
+				{
+					issues: [
+						{
+							field: "priority",
+							message: "Must be one of: low, normal, urgent.",
+						},
+					],
+				},
+			);
+		}
+		try {
+			const card = await repository.updateReviewBoardPriority(
+				decodeURIComponent(priorityUpdate[1]),
+				priority,
+			);
+			return card
+				? ok(card)
+				: errorResponse(404, "not_found", "Review-board card was not found.", {
+						card_id: decodeURIComponent(priorityUpdate[1]),
+					});
+		} catch (error) {
+			return errorResponse(
+				422,
+				"validation_error",
+				"Review-board priority could not be updated.",
+				{
+					reason: error.message,
+				},
+			);
+		}
+	}
+
+	const approval = path.match(
+		/^\/api\/v1\/review-board\/cards\/([^/]+)\/approval$/,
+	);
+	if (normalizedMethod === "POST" && approval) {
+		const repository = resolveBoardRepository();
+		if (!repository) return boardRepositoryUnavailable();
+		try {
+			const card = await repository.approveReviewBoardCard(
+				decodeURIComponent(approval[1]),
+				{ reviewerName: body.reviewerName ?? body.reviewer_name ?? null },
+			);
+			return card
+				? ok(card)
+				: errorResponse(404, "not_found", "Review-board card was not found.", {
+						card_id: decodeURIComponent(approval[1]),
+					});
+		} catch (error) {
+			return errorResponse(
+				422,
+				"validation_error",
+				"Review-board approval could not be recorded.",
+				{
+					reason: error.message,
+				},
+			);
+		}
+	}
+
 	const reviewRunCreate = path.match(
 		/^\/api\/v1\/thesis-documents\/([^/]+)\/review-runs$/,
 	);
@@ -87,7 +180,9 @@ export async function handleApiRequest({ method, path, query = {}, body = {} }) 
 			const livePipeline = isKnownUploadedDocument(documentId)
 				? getLivePipeline()
 				: null;
-			const lifecycle = livePipeline ? livePipeline.lifecycle : reviewRunLifecycle;
+			const lifecycle = livePipeline
+				? livePipeline.lifecycle
+				: reviewRunLifecycle;
 			return await lifecycle.startReviewRun({ documentId, pipelineVersion });
 		} catch (error) {
 			return errorResponse(
@@ -110,7 +205,11 @@ export async function handleApiRequest({ method, path, query = {}, body = {} }) 
 		const items = await resolveFindingsView(runId);
 		return ok({
 			review_run_id: runId,
-			...paginated(items, pagination.value, pickFilters(query, ["type", "severity"])),
+			...paginated(
+				items,
+				pagination.value,
+				pickFilters(query, ["type", "severity"]),
+			),
 		});
 	}
 
@@ -118,10 +217,12 @@ export async function handleApiRequest({ method, path, query = {}, body = {} }) 
 		/^\/api\/v1\/review-runs\/([^/]+)\/report-artifacts$/,
 	);
 	if (normalizedMethod === "GET" && artifacts) {
+		const runId = decodeURIComponent(artifacts[1]);
+		const artifact = await resolveMarkdownReportArtifact(runId);
 		return ok({
-			review_run_id: decodeURIComponent(artifacts[1]),
-			status: "pending",
-			items: [],
+			review_run_id: runId,
+			status: artifact ? "available" : "pending",
+			items: artifact ? [artifact] : [],
 		});
 	}
 
@@ -129,6 +230,19 @@ export async function handleApiRequest({ method, path, query = {}, body = {} }) 
 		method: normalizedMethod,
 		path,
 	});
+}
+
+function resolveBoardRepository() {
+	return getLivePipeline()?.repository ?? null;
+}
+
+function boardRepositoryUnavailable() {
+	return errorResponse(
+		503,
+		"service_unavailable",
+		"Review-board workflow persistence is not available.",
+		{ reason: "DATABASE_URL is not configured" },
+	);
 }
 
 function createdDocument() {
@@ -213,6 +327,165 @@ async function resolveFindingsView(runId) {
 	const reviewRunDbId = livePipeline.getReviewRunDbId(runId);
 	if (!reviewRunDbId) return [];
 	return livePipeline.repository.listFindingsForReviewRun(reviewRunDbId);
+}
+
+async function resolveMarkdownReportArtifact(runId) {
+	const run = await resolveExistingReviewRunView(runId);
+	if (!run) return null;
+	const findings = await resolveFindingsView(runId);
+	return {
+		id: `${runId}-markdown-report`,
+		kind: "markdown",
+		filename: `review-run-${runId}-report.md`,
+		content_type: "text/markdown; charset=utf-8",
+		content: buildMarkdownReviewReport({ run, findings }),
+	};
+}
+
+async function resolveExistingReviewRunView(runId) {
+	const livePipeline = getLivePipeline();
+	if (livePipeline) {
+		try {
+			const result = livePipeline.lifecycle.getReviewRun(runId);
+			return withRealSummary(result.body, livePipeline, runId);
+		} catch {
+			// Not a live-pipeline run — fall through.
+		}
+	}
+	try {
+		const result = reviewRunLifecycle.getReviewRun(runId);
+		return {
+			...result.body,
+			summary: { ...EMPTY_SUMMARY },
+			...EMPTY_PROVENANCE,
+		};
+	} catch {
+		return null;
+	}
+}
+
+function buildMarkdownReviewReport({ run, findings }) {
+	const findingCount = findings.length;
+	return [
+		"# Thesis Review Report",
+		"",
+		"## Executive Summary",
+		`Review run ${run.id} is currently ${formatValue(run.status)}. ${summarizeFindings(findingCount)}`,
+		"",
+		"## Overall Verdict / Readiness",
+		readinessText(run, findings),
+		"",
+		"## Finding Counts by Severity",
+		formatSeverityCounts(findings),
+		"",
+		"## Detailed Findings",
+		formatDetailedFindings(findings),
+		"",
+		"## Evidence",
+		formatEvidence(findings),
+		"",
+		"## Recommended Actions",
+		formatRecommendedActions(findings),
+		"",
+	].join("\n");
+}
+
+function summarizeFindings(findingCount) {
+	if (findingCount === 0) {
+		return "No findings were recorded for this review run.";
+	}
+	return `${findingCount} finding${findingCount === 1 ? " was" : "s were"} recorded for this review run.`;
+}
+
+function readinessText(run, findings) {
+	if (findings.length === 0) {
+		return run.status === "completed"
+			? "No recorded findings block thesis readiness based on the available review data."
+			: "The run exists, but the review is not completed yet; treat this report as preliminary.";
+	}
+	if (
+		findings.some((finding) => ["critical", "high"].includes(finding.severity))
+	) {
+		return "Revision is required before the thesis should be treated as review-ready.";
+	}
+	return "Revision is recommended before final thesis approval.";
+}
+
+function formatSeverityCounts(findings) {
+	if (findings.length === 0) {
+		return "No severity counts are available because no findings were recorded.";
+	}
+	const counts = findings.reduce((acc, finding) => {
+		const severity = formatValue(finding.severity);
+		acc[severity] = (acc[severity] ?? 0) + 1;
+		return acc;
+	}, {});
+	return Object.entries(counts)
+		.sort(([left], [right]) => left.localeCompare(right))
+		.map(([severity, count]) => `- ${severity}: ${count}`)
+		.join("\n");
+}
+
+function formatDetailedFindings(findings) {
+	if (findings.length === 0) {
+		return "No findings were recorded for this review run.";
+	}
+	return findings
+		.map((finding, index) => {
+			const lines = [
+				`### ${index + 1}. ${formatValue(finding.title, "Untitled finding")}`,
+				"",
+				`- Severity: ${formatValue(finding.severity)}`,
+				`- Type: ${formatValue(finding.finding_type)}`,
+			];
+			if (finding.confidence != null)
+				lines.push(`- Confidence: ${finding.confidence}`);
+			lines.push(
+				"",
+				formatValue(finding.explanation, "No explanation provided."),
+			);
+			return lines.join("\n");
+		})
+		.join("\n\n");
+}
+
+function formatEvidence(findings) {
+	if (findings.length === 0) {
+		return "No evidence snippets were recorded for this review run.";
+	}
+	return findings
+		.map((finding, index) => {
+			const location = [];
+			if (finding.page_number != null)
+				location.push(`Page ${finding.page_number}`);
+			if (finding.section_title)
+				location.push(`Section: ${finding.section_title}`);
+			return [
+				`### Finding ${index + 1}: ${formatValue(finding.title, "Untitled finding")}`,
+				"",
+				`- Location: ${location.length ? location.join("; ") : "Not available"}`,
+				"",
+				`> ${formatValue(finding.evidence_text, "No evidence text provided.")}`,
+			].join("\n");
+		})
+		.join("\n\n");
+}
+
+function formatRecommendedActions(findings) {
+	if (findings.length === 0) {
+		return "Continue with the existing thesis review workflow and record any future reviewer observations as findings.";
+	}
+	return findings
+		.map(
+			(finding, index) =>
+				`${index + 1}. ${formatValue(finding.recommendation, "Review and resolve the finding before approval.")}`,
+		)
+		.join("\n");
+}
+
+function formatValue(value, fallback = "Not available") {
+	if (value === null || value === undefined || value === "") return fallback;
+	return String(value).trim() || fallback;
 }
 
 function reviewRunStatus(runId) {

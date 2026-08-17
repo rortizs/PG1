@@ -1,138 +1,118 @@
-# Plagio
+# PG1 — Plataforma de revisión de tesis asistida por IA
 
-El porcentaje de aceptación es de 20%
+Proyecto de graduación, Facultad de Ingeniería en Sistemas de Información y
+Ciencias de la Computación, Universidad Mariano Gálvez. Historial y visión
+del proyecto en [`HISTORY.md`](HISTORY.md); normativa de cátedra en
+[`docs/normativa-catedra.md`](docs/normativa-catedra.md).
 
-**Nota:** Parafrasear ayuda a evitar el plagio.
+## Qué hace
 
-## PROYECTO DE TESIS
+Un revisor sube la tesis (PDF o DOCX, máx. 20 MB) desde la vista de detalle
+de un estudiante. El pipeline de revisión corre dos vías independientes
+sobre el mismo documento:
 
-Este es el proyecto de tesis, la facultad de Ingeniería en Sistemas de información y Ciencias de la Computación de la Universidad Mariano Gálvez.
+- **Revisión LLM (CAG)** — revisión asistida por IA (Anthropic Claude) que
+  produce hallazgos con evidencia y ubicación (página/sección), ahora
+  reforzada con **retrieval real sobre pgvector**: se recuperan los
+  segmentos normativos más similares al contenido de la tesis y se inyectan
+  como contexto en el prompt de revisión (`apps/api/src/embeddings/`,
+  migración `0005_normative_rag_indexes.sql`), con trazabilidad de qué
+  segmentos se usaron en cada hallazgo.
+- **Motor de reglas determinístico** — sin llamadas a LLM (`services/worker/app/rules/`):
+  muletillas, oraciones largas, ortografía en español, estructura del
+  documento y verificación de citas.
 
-## **NOTA IMPORTANTE**
+Ambas vías son independientes: si una falla, la otra sigue produciendo
+resultados. Los hallazgos se persisten en Postgres y se pueden descargar
+como reporte en Markdown.
 
---TODOS LOS CAPÍTULOS DEBEN INICIAR EN UNA NUMERACIÓN **IMPAR!!**
---Ejemplo: Si alguno de sus capítulos termina en una página par, debe colocar una pagina vacia, y con esto iniciaría con el nuevo capítulo una página impar.
+Un tablero Kanban (`/review-board`) sigue a cada estudiante a través de los
+estados `Pending → In Review → Reviewed → Approved`, con prioridad
+`Low/Normal/Urgent`. El estado `Approved` lo define únicamente un revisor
+humano — nunca se marca automáticamente.
 
-## Capítulo I- Antecedentes
+## Arquitectura
 
---Todo lo relacionado a la historia del proyecto, antecedentes, como se origino, que es lo que se quiere lograr, que es lo que se quiere hacer.
---Ejemplo: "Sistema de control para Inventarios, la Farmacia Estoy Jodido"
+| Servicio | Stack | Rol |
+|---|---|---|
+| [`apps/api`](apps/api) | NestJS 11, `pg`, TypeScript vía `tsx` | API REST, orquestación del pipeline de revisión, persistencia |
+| [`apps/web`](apps/web) | Angular 20 (standalone, signals) | Tablero de revisión, subida de tesis, descarga de reportes |
+| [`services/worker`](services/worker) | Python 3.11, FastAPI, Anthropic SDK | Extracción de texto, revisión CAG/RAG, motor de reglas |
 
-**NOTA IMPORTANTE:**
---Las tablas su encabezado debe ir el color(celeste)
---El pie de las tablas deben ir el Arial 10 o TimesNewRoman 10
---Ejemplo: Autor: Autoria Propia
--- EL Capítulo II, aunque usted lo parafree es importante que coloque las citas de los respectivos autores, y que lo haga de la siguiente manera:
---Ejemplo: (Autor, año) o (Autor, año, pagina)
+Postgres con la extensión `pgvector` es la base de datos compartida
+(`infra/docker-compose.yml`).
 
-**obervación**: si el autor tiene dos apellidos, se coloca el primer apellido seguido de una coma y el segundo apellido seguido de un espacio y la inicial del nombre. Ejemplo: (Gonzalez, A. 2023)
+## Estructura del repo
 
-### Proyecto de software
+```
+apps/api/            NestJS: contrato de API, jobs, repositorio, migraciones
+apps/web/             Angular: páginas del tablero y de subida
+services/worker/      FastAPI: extracción, CAG/RAG, reglas
+infra/                docker-compose para Postgres + pgvector
+data/academic-rules/  Corpus normativo extraído (texto plano, usado por RAG)
+docs/                 Runbooks, guía de testing, OpenAPI, PDFs normativos fuente
+openspec/             Cambios spec-driven development (ver abajo)
+scripts/              Utilidades de repo (smoke tests, etc.)
+```
 
-El proyecto debe estar en produccioón y cuando defienda su tesis este no debe presentarlo en xammp, wamp o derivados. Debe ser en producción, y debe estar en un servidor real, y no en un localhost.
+## Cómo correrlo en local
 
--- 1. NO ACEPTA PROYECTOS EN PHP.
--- 2. LARAVEL (SI SE ACPETAN **argumentos solidos y estrategias tecnologicas, y de seguridad.**)
--- 3. PROYECTOS DE POS (**hay que validar con argumentos solidos y estrategias tecnologicas, y de seguridad.**)
--- 4. PROUECTOS QUE SE ACEPTAN AHORA:
-4.1 REACT
-4.2 ANGULAR
-4.3 VUE
-4.4 PYTHON CON DJANGO O FLASK
-4.5 NODEJS PARA EL BACKEND
-4.6 NESTJS (V. 6)
-4.7 MICRO SERVICIOS
-4.8 .NET CON REACT O VUE
--- 5. Integración con AI (interacción con ChatGPT, Bard, etc.Uso de su api)
+Prerrequisitos: Docker, Node.js 22+ con `pnpm`, Python 3.11+.
 
-## Reglamento (guía)
+```bash
+# 1. Levantar Postgres + pgvector
+docker compose -f infra/docker-compose.yml up -d
 
-Todo fundamento tiene que tener un respaldo Documental (5 años antiguedad.)
+# 2. Migrar el esquema
+DATABASE_URL=postgres://pg1:pg1@localhost:5432/pg1 node apps/api/src/db/migrate.mjs up
 
-**NOTA**: Si dentro de su estructura del marco Teórico, tiene palabras en íngles, es importante que tome en cuenta la siguiente observación de críterio:
--1 Word Wide Web (esta palabra debe ir en cursiva)
--1.1 Red de Redes, Web (La traducción de la misma debe tener sentido del contexto.)
--1.2 React (esta palabra debe ir en cursiva)
--1.3 Reactivo (Esta palabra, se entiende en el contexto del contenido?)
+# 3. Crear .env en la raíz (no se autocarga — sourcealo antes de levantar api/worker)
+#    DATABASE_URL=postgres://pg1:pg1@localhost:5432/pg1
+#    ANTHROPIC_API_KEY=sk-ant-...
+#    WORKER_BASE_URL=http://localhost:8000
+set -a && source .env && set +a
 
-### Estructura
+# 4. Worker (terminal aparte)
+cd services/worker && uvicorn app.main:app --host 127.0.0.1 --port 8000
 
--Que es un inventarios
--Para que sirve un inventario
--- tipos de inventarios
---PEPS
---UEPS
--Que es un control
--Para que sirven los controles
--Tipos de Productos
--Perecederos
+# 5. API (terminal aparte)
+cd apps/api && node --import tsx src/main.ts   # PORT por defecto: 3000
 
-### Estructura del proyecto de maneara CRONOLOGICA
+# 6. Web (terminal aparte)
+cd apps/web && pnpm start   # ng serve, proxy hacia la API
+```
 
---MONOLITICO
---WWW
----1.0, 2.0, 3.0, 4.0 Y 5.0
---NAVEGADORES
---TIPO DE NAVEGADORES
---FIREFOX
---VERSIONES
---CHROME
---EDGE
---OPERA
---ETC.
---PROTOCOLOS
---HTTP
---HTTPS
---CERTIFICADOS SSL (ECOMMERCE => SSL ASEGURANZA)
---HTML
---HTML 1.0, 2.0, 3.0, 4.0, 5.0
---CSS
---CSS 3, BENJAMIN-2025, IDEM
---JS
---VERSIONES
---PHP
---VERSIONES
---NODEJS
---VERSIONES
---FRAMEWORKS
---TIPOS
---CSS
---BOOTSTRAP, MATERIALIZE, TALWING
---DESARROLLO
---ANGULAR
---VERSIONES
---SINFONY
-VERSIONES
---CONDEINGNITER
-VERSIONES
---LARAVEL
+Runbook completo de verificación manual end-to-end:
+[`docs/mvp-vertical-slice-runbook.md`](docs/mvp-vertical-slice-runbook.md).
 
-LIBRERIAS
-REACT
-VERSIONES
---BASE DE DATOS
-TIPOS DE BASE DE DATOS
--SQL (TIPO DE LICENCIA PARA EL USO, OPEN GL)
---SQL SERVER PROFFEIONAL \*\*PAGA, SQL COMMUNITY
---MYSQL
---MARIADB
+## Testing
 
-      -NOSQL
+```bash
+pnpm test                       # smoke tests de todo el repo
+pnpm --filter @pg1/api test     # NestJS API (node --test)
+pnpm --filter @pg1/web test     # Angular (node --test sobre helpers puros)
+cd services/worker && pnpm test # o: python3 -m unittest discover -s tests -p 'test_*.py'
+```
 
--Proyecto -> "Estructura del proyecto."
----Framework
+Guía de testing: [`docs/testing.md`](docs/testing.md).
 
-## CAPÍTULO III- MARCO METODOLÓGICO
+## Desarrollo con SDD (OpenSpec)
 
-Contexto de las metodologías de investigación, como pueden ser las siguientes:
+Cada feature relevante se planifica como un *change* bajo `openspec/changes/`
+(explore → proposal → spec → design → tasks → apply → verify → archive)
+antes de implementarse. Cambios archivados quedan en
+`openspec/changes/archive/` como historial de decisiones.
 
--1. Metodología de investigación cualitativa
--Para que sirve y como la aplicaria a su proyecto.
--2. Metodología de investigación cuantitativa
--Para que sirve y como la aplicaria a su proyecto.
--3. Metodología de investigación mixta
--Para que sirve y como la aplicaria a su proyecto.
--4. Metodología de investigación Observativa
--Para que sirve y como la aplicaria a su proyecto.
--5. Metodología de investigación Descriptiva
--Para que sirve y como la aplicaria a su proyecto.
+Activos/recientes:
+
+- `functional-review-board-rag` — tablero Kanban y retrieval real con pgvector.
+- `precise-thesis-review-pipeline` — detección de secciones y motor de reglas (en curso).
+- `mvp-academic-review-core` — fundamentos de precisión académica y trazabilidad de evidencia.
+
+Archivados: `mvp-vertical-slice`, `llm-provider-admin`.
+
+## Documentación adicional
+
+- [`docs/api/openapi.yaml`](docs/api/openapi.yaml) — contrato de la API.
+- [`docs/guias/`](docs/guias) — PDFs normativos fuente (APA, guía GT, plantilla de graduación).
+- [`data/academic-rules/`](data/academic-rules) — texto extraído de esos PDFs, usado como corpus normativo para RAG.

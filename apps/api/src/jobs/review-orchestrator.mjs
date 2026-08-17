@@ -29,11 +29,15 @@ export async function defaultRunCagReview({
 	providerName,
 	apiKey,
 	modelId,
+	retrievedContext,
 }) {
 	const body = { thesis_text: thesisText };
 	if (providerName !== undefined) body.provider_name = providerName;
 	if (apiKey !== undefined) body.api_key = apiKey;
 	if (modelId !== undefined) body.model_id = modelId;
+	if (Array.isArray(retrievedContext) && retrievedContext.length > 0) {
+		body.rag_context = retrievedContext;
+	}
 	const response = await fetch(`${DEFAULT_WORKER_BASE_URL}/internal/review`, {
 		method: "POST",
 		headers: { "content-type": "application/json" },
@@ -44,6 +48,30 @@ export async function defaultRunCagReview({
 		const detail = await response.text().catch(() => "");
 		throw new Error(
 			`Worker /internal/review failed with status ${response.status}: ${detail}`,
+		);
+	}
+	return response.json();
+}
+
+/**
+ * Real call to the worker's `/internal/rules` — the deterministic,
+ * zero-LLM-call rule engine (design.md D8/D9, precise-thesis-review-pipeline
+ * Work Unit 5). Structurally independent of `/internal/review`: it's a
+ * separate route, a separate fetch, and (per `process()` below) a separate
+ * try/catch, so a failure here never blocks or corrupts the LLM review path,
+ * and vice versa (spec: Independence from the LLM Review Path).
+ */
+export async function defaultRunRules({ pages, sections }) {
+	const response = await fetch(`${DEFAULT_WORKER_BASE_URL}/internal/rules`, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ pages, sections }),
+		signal: AbortSignal.timeout(DEFAULT_WORKER_TIMEOUT_MS),
+	});
+	if (!response.ok) {
+		const detail = await response.text().catch(() => "");
+		throw new Error(
+			`Worker /internal/rules failed with status ${response.status}: ${detail}`,
 		);
 	}
 	return response.json();
@@ -91,7 +119,9 @@ export function createReviewOrchestrationProcessor({
 	resolveThesisDocumentDbId,
 	extractThesisText,
 	runCagReview = defaultRunCagReview,
+	runRules = defaultRunRules,
 	resolveNormativeSourceId,
+	retrieveNormativeContext,
 }) {
 	if (typeof extractThesisText !== "function") {
 		throw new TypeError(
@@ -110,9 +140,8 @@ export function createReviewOrchestrationProcessor({
 
 		let reviewRunDbId;
 		try {
-			const thesisDocumentDbId = await resolveThesisDocumentDbId(
-				thesisDocumentId,
-			);
+			const thesisDocumentDbId =
+				await resolveThesisDocumentDbId(thesisDocumentId);
 			reviewRunDbId = await repository.insertReviewRun({
 				thesisDocumentId: thesisDocumentDbId,
 				pipelineVersion,
@@ -176,10 +205,90 @@ export function createReviewOrchestrationProcessor({
 			}));
 
 			lifecycle.transitionReviewRun(lifecycleRunId, "validating");
+
+			// Deterministic rules + LLM review (precise-thesis-review-pipeline
+			// Work Unit 5, design.md D9): the two paths are called and persisted
+			// INDEPENDENTLY — a failure in either one is caught here, never
+			// re-thrown, so it can never block or corrupt the other's result set
+			// (spec: Independence from the LLM Review Path). Both failing (or
+			// extraction itself failing, handled by the outer try/catch) is the
+			// only case that still fails the whole run.
+			let ruleFindings = [];
+			let ruleError = null;
+			try {
+				const rulesResult = await runRules({
+					pages: extractionPages,
+					sections: extractionSections,
+				});
+				ruleFindings = rulesResult?.findings ?? [];
+			} catch (error) {
+				ruleError = error;
+			}
+
+			for (const ruleFinding of ruleFindings) {
+				const documentPageId =
+					ruleFinding.page_number != null
+						? (idByPageNumber[ruleFinding.page_number] ?? null)
+						: null;
+				const documentSectionId = findSectionIdForPage(
+					insertedSections,
+					ruleFinding.page_number ?? null,
+				);
+				await repository.persistFinding({
+					reviewRunId: reviewRunDbId,
+					normativeSourceId: null,
+					finding: {
+						findingType: ruleFinding.finding_type,
+						severity: ruleFinding.severity,
+						confidence: ruleFinding.confidence ?? null,
+						title: ruleFinding.title,
+						explanation: ruleFinding.explanation,
+						recommendation: ruleFinding.recommendation ?? null,
+						producerType: ruleFinding.producer_type ?? "deterministic_rule",
+						producerId: ruleFinding.producer_id ?? "rules@v1",
+						ruleId: ruleFinding.rule_id ?? null,
+						metadata: ruleFinding.metadata ?? {},
+					},
+					evidence: [
+						{
+							evidenceText: ruleFinding.evidence_text,
+							pageNumber: ruleFinding.page_number ?? null,
+							sectionTitle: null,
+							documentPageId,
+							documentSectionId,
+							isPageUncertain: ruleFinding.page_number == null,
+						},
+					],
+				});
+			}
+
 			lifecycle.transitionReviewRun(lifecycleRunId, "rag_reviewing");
 
-			const thesisText = extraction.fullText ?? extraction.full_text ?? "";
-			const reviewResult = await runCagReview({ thesisText });
+			let reviewResult = null;
+			let llmError = null;
+			let retrievedContext = [];
+			try {
+				const thesisText =
+					extraction.llm_text ??
+					extraction.llmText ??
+					extraction.fullText ??
+					extraction.full_text ??
+					"";
+				if (typeof retrieveNormativeContext === "function") {
+					try {
+						const retrieved = await retrieveNormativeContext({ thesisText });
+						retrievedContext = Array.isArray(retrieved) ? retrieved : [];
+					} catch {
+						retrievedContext = [];
+					}
+				}
+				reviewResult = await runCagReview({
+					thesisText,
+					...(retrievedContext.length > 0 ? { retrievedContext } : {}),
+				});
+			} catch (error) {
+				llmError = error;
+			}
 			const finding = reviewResult?.finding ?? null;
 
 			lifecycle.transitionReviewRun(lifecycleRunId, "reporting");
@@ -208,6 +317,20 @@ export function createReviewOrchestrationProcessor({
 						recommendation: finding.recommendation ?? null,
 						producerType: finding.producer_type ?? "controlled_rag",
 						producerId: finding.producer_id,
+						metadata:
+							retrievedContext.length > 0
+								? {
+										rag_context: {
+											mode: "retrieved",
+											segment_ids: retrievedContext.map(
+												(item) => item.segment_id,
+											),
+											source_refs: retrievedContext.map(
+												(item) => item.source_ref,
+											),
+										},
+									}
+								: {},
 					},
 					evidence: [
 						{
@@ -223,6 +346,22 @@ export function createReviewOrchestrationProcessor({
 				});
 			}
 
+			// Both independent paths failing is treated exactly like today's
+			// single-path failure: rethrow so the outer catch marks the run
+			// `failed` with a real `error_summary` (design.md D3's partial-failure
+			// semantics — "Both paths fail ... -> status='failed' (today's
+			// behavior, unchanged)").
+			if (ruleError && llmError) {
+				throw new Error(
+					`review pipeline failed on both independent paths — rules: ${ruleError.message}; llm: ${llmError.message}`,
+				);
+			}
+
+			const partialFailure = {};
+			if (ruleError) partialFailure.rules = ruleError.message;
+			if (llmError) partialFailure.llm = llmError.message;
+			const hasPartialFailure = Object.keys(partialFailure).length > 0;
+
 			await repository.updateReviewRunStatus(reviewRunDbId, {
 				completedAt: new Date(),
 				// llm-provider-admin Work Unit 8: `runCagReview`'s result MAY carry
@@ -235,6 +374,15 @@ export function createReviewOrchestrationProcessor({
 				// `updateReviewRunStatus`'s own `COALESCE`.
 				llmProviderName: reviewResult?.providerName ?? null,
 				llmModelId: reviewResult?.modelId ?? null,
+				// design.md D3: "LLM path fails but rules succeeded (or vice versa)
+				// -> status='completed', error_summary=<failed path message>,
+				// metadata.partial_failure={llm|rules: message}."
+				errorSummary: hasPartialFailure
+					? (ruleError?.message ?? llmError?.message)
+					: null,
+				metadata: hasPartialFailure
+					? { partial_failure: partialFailure }
+					: undefined,
 			});
 			lifecycle.transitionReviewRun(lifecycleRunId, "completed");
 		} catch (error) {
@@ -278,6 +426,7 @@ export function createReviewPipeline({
 	extractThesisText,
 	runCagReview = defaultRunCagReview,
 	resolveNormativeSourceId,
+	retrieveNormativeContext,
 }) {
 	let lifecycleInstance;
 	const lifecycleProxy = {
@@ -293,6 +442,7 @@ export function createReviewPipeline({
 		extractThesisText,
 		runCagReview,
 		resolveNormativeSourceId,
+		retrieveNormativeContext,
 	});
 	const queue = createInlineReviewQueue({ processor });
 	lifecycleInstance = createReviewRunLifecycleService({ queue });

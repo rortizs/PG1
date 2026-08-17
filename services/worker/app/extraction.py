@@ -13,10 +13,17 @@ yields zero sections (callers fall back to fixed-window chunking).
 """
 from __future__ import annotations
 
+import os
 import re
+import tempfile
+import threading
 import unicodedata
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, field, replace
 from io import BytesIO
+from pathlib import Path
+from queue import Empty, Queue
+from typing import Protocol
 
 from docx import Document
 from docx.opc.exceptions import PackageNotFoundError
@@ -30,6 +37,9 @@ RESOLVED_PDF_CONTENT_TYPE = "application/pdf"
 RESOLVED_DOCX_CONTENT_TYPE = (
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 )
+MARKITDOWN_LLM_TEXT_FLAG = "PG1_ENABLE_MARKITDOWN_LLM_TEXT"
+MARKITDOWN_TIMEOUT_SECONDS_FLAG = "PG1_MARKITDOWN_TIMEOUT_SECONDS"
+DEFAULT_MARKITDOWN_TIMEOUT_SECONDS = 10.0
 
 
 class ExtractionError(RuntimeError):
@@ -84,9 +94,10 @@ class ExtractionResult:
     pages: list[ExtractedPage]
     full_text: str
     sections: list[ExtractedSection] = field(default_factory=list)
+    llm_text: str | None = None
 
     def to_dict(self) -> dict:
-        return {
+        payload = {
             "filename": self.filename,
             "content_type": self.content_type,
             "page_count": self.page_count,
@@ -94,6 +105,9 @@ class ExtractionResult:
             "full_text": self.full_text,
             "sections": [asdict(section) for section in self.sections],
         }
+        if self.llm_text is not None:
+            payload["llm_text"] = self.llm_text
+        return payload
 
 
 # --- Section-boundary detection (design.md D2) -----------------------------
@@ -365,7 +379,106 @@ def _extract_docx(data: bytes) -> tuple[list[ExtractedPage], str]:
     return pages, full_text
 
 
-def extract_text(*, filename: str, content_type: str, data: bytes) -> ExtractionResult:
+class MarkItDownConverter(Protocol):
+    def convert(self, source: str) -> object: ...
+
+
+MarkItDownConverterFactory = Callable[[], MarkItDownConverter]
+
+
+def _is_markitdown_enabled() -> bool:
+    return os.environ.get(MARKITDOWN_LLM_TEXT_FLAG) == "1"
+
+
+def _default_markitdown_converter_factory() -> MarkItDownConverter:
+    from markitdown import MarkItDown
+
+    return MarkItDown()
+
+
+def _configured_markitdown_timeout_seconds() -> float:
+    raw_timeout = os.environ.get(MARKITDOWN_TIMEOUT_SECONDS_FLAG)
+    if raw_timeout is None:
+        return DEFAULT_MARKITDOWN_TIMEOUT_SECONDS
+    try:
+        timeout = float(raw_timeout)
+    except ValueError:
+        return DEFAULT_MARKITDOWN_TIMEOUT_SECONDS
+    return timeout if timeout > 0 else DEFAULT_MARKITDOWN_TIMEOUT_SECONDS
+
+
+def _temporary_upload_suffix(filename: str) -> str:
+    suffix = Path(filename or "").suffix.lower()
+    return suffix if suffix in {".pdf", ".docx"} else ""
+
+
+def _run_markitdown_with_timeout(
+    *,
+    path: Path,
+    converter_factory: MarkItDownConverterFactory,
+    timeout_seconds: float,
+) -> str | None:
+    results: Queue[tuple[str, str | BaseException | None]] = Queue(maxsize=1)
+
+    def _target() -> None:
+        try:
+            converter = converter_factory()
+            converted = converter.convert(str(path))
+            results.put(("ok", getattr(converted, "text_content", None)))
+        except Exception as exc:
+            results.put(("error", exc))
+
+    thread = threading.Thread(target=_target, daemon=True)
+    thread.start()
+    thread.join(timeout_seconds)
+    if thread.is_alive():
+        return None
+
+    try:
+        status, value = results.get_nowait()
+    except Empty:
+        return None
+    if status == "error":
+        if isinstance(value, BaseException):
+            raise value
+        return None
+    return value if isinstance(value, str) else None
+
+
+def _extract_markitdown_llm_text(
+    *,
+    filename: str,
+    data: bytes,
+    converter_factory: MarkItDownConverterFactory | None,
+    timeout_seconds: float | None,
+) -> str | None:
+    if not _is_markitdown_enabled():
+        return None
+
+    resolved_converter_factory = converter_factory or _default_markitdown_converter_factory
+    resolved_timeout = timeout_seconds or _configured_markitdown_timeout_seconds()
+
+    try:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / f"upload{_temporary_upload_suffix(filename)}"
+            path.write_bytes(data)
+            return _run_markitdown_with_timeout(
+                path=path,
+                converter_factory=resolved_converter_factory,
+                timeout_seconds=resolved_timeout,
+            )
+    except Exception:
+        return None
+
+
+def extract_text(
+    *,
+    filename: str,
+    content_type: str,
+    data: bytes,
+    markitdown_converter_factory: MarkItDownConverterFactory | None = None,
+    markitdown_timeout_seconds: float | None = None,
+) -> ExtractionResult:
     if not data:
         raise ExtractionError("Uploaded file is empty")
 
@@ -384,6 +497,13 @@ def extract_text(*, filename: str, content_type: str, data: bytes) -> Extraction
             f"Unsupported content type '{content_type}' for file '{filename}'"
         )
 
+    llm_text = _extract_markitdown_llm_text(
+        filename=filename,
+        data=data,
+        converter_factory=markitdown_converter_factory,
+        timeout_seconds=markitdown_timeout_seconds,
+    )
+
     return ExtractionResult(
         filename=filename or "upload",
         content_type=resolved_type,
@@ -391,4 +511,5 @@ def extract_text(*, filename: str, content_type: str, data: bytes) -> Extraction
         pages=pages,
         full_text=full_text,
         sections=sections,
+        llm_text=llm_text,
     )

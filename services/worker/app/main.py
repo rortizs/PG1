@@ -10,13 +10,14 @@ from __future__ import annotations
 from dataclasses import asdict
 
 from fastapi import Depends, FastAPI, HTTPException, UploadFile
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from .cag_review import CagReviewError, run_cag_review
 from .extraction import ExtractionError, UnsupportedContentTypeError, extract_text
 from .providers.anthropic_provider import AnthropicProvider, AnthropicProviderConfigError
 from .providers.llm_provider import LLMProvider, ProviderNotImplementedError
 from .providers.unimplemented_provider import DeepSeekProvider, GroqProvider, UnimplementedProvider
+from .rules import run_rules
 
 WORKER_SERVICE_NAME = "pg1-document-ai-worker"
 
@@ -24,6 +25,13 @@ WORKER_SERVICE_NAME = "pg1-document-ai-worker"
 # to exactly these three values (see 0002_llm_provider_config.sql's CHECK
 # constraint) — kept in sync here for the worker's own selection logic.
 SUPPORTED_PROVIDER_NAMES = ("claude", "deepseek", "groq")
+
+
+class RagContextItem(BaseModel):
+    segment_id: int | None = None
+    source_ref: str
+    segment_text: str
+    similarity_score: float | None = None
 
 
 class ReviewRequest(BaseModel):
@@ -35,6 +43,36 @@ class ReviewRequest(BaseModel):
     provider_name: str | None = None
     api_key: str | None = None
     model_id: str | None = None
+    rag_context: list[RagContextItem] = Field(default_factory=list)
+
+
+class PageInput(BaseModel):
+    """Precise-thesis-review-pipeline Work Unit 5: same per-page shape
+    `/internal/extract` returns — `/internal/rules` is the second, fully
+    independent consumer of that shape (design.md's flow diagram)."""
+
+    page_number: int | None = None
+    section_title: str | None = None
+    text: str = ""
+
+
+class SectionInput(BaseModel):
+    index: int
+    parent_index: int | None = None
+    section_type: str
+    title: str | None = None
+    normalized_title: str | None = None
+    start_page_number: int | None = None
+    end_page_number: int | None = None
+    start_offset: int | None = None
+    end_offset: int | None = None
+    is_location_uncertain: bool = False
+    metadata: dict = Field(default_factory=dict)
+
+
+class RulesRequest(BaseModel):
+    pages: list[PageInput] = Field(default_factory=list)
+    sections: list[SectionInput] = Field(default_factory=list)
 
 
 def select_llm_provider(
@@ -48,12 +86,9 @@ def select_llm_provider(
     """
     name = (provider_name or "claude").strip().lower()
     if name == "claude":
-        kwargs: dict[str, str] = {}
-        if api_key is not None:
-            kwargs["api_key"] = api_key
         if model_id is not None:
-            kwargs["model"] = model_id
-        return AnthropicProvider(**kwargs)
+            return AnthropicProvider(model=model_id, api_key=api_key)
+        return AnthropicProvider(api_key=api_key)
     if name == "deepseek":
         return DeepSeekProvider(api_key=api_key, model=model_id)
     if name == "groq":
@@ -90,12 +125,29 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         return result.to_dict()
 
+    @app.post("/internal/rules")
+    def internal_rules(payload: RulesRequest):
+        """Precise-thesis-review-pipeline Work Unit 5 (design.md D9):
+        structurally incapable of an LLM call — `app.rules` imports nothing
+        from `app.providers` (see `tests/test_rules.py::ImportBoundaryTest`
+        and `tests/test_review_endpoint.py`'s provider-call-spy proof), so
+        this route has an independent failure domain from `/internal/review`.
+        """
+        pages = [page.model_dump() for page in payload.pages]
+        sections = [section.model_dump() for section in payload.sections]
+        findings = run_rules(pages, sections)
+        return {"findings": [asdict(finding) for finding in findings]}
+
     @app.post("/internal/review")
     def internal_review(
         payload: ReviewRequest, provider: LLMProvider = Depends(get_llm_provider)
     ):
         try:
-            finding = run_cag_review(provider, payload.thesis_text)
+            finding = run_cag_review(
+                provider,
+                payload.thesis_text,
+                retrieved_context=[item.model_dump() for item in payload.rag_context],
+            )
         except ProviderNotImplementedError as exc:
             raise HTTPException(
                 status_code=501, detail=f"not_implemented: {exc}"

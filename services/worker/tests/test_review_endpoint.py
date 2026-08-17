@@ -66,6 +66,52 @@ class ReviewEndpointTest(unittest.TestCase):
         self.assertIn("groq", detail.lower())
         self.assertNotIn("sk-groq-must-never-leak", detail)
 
+    def test_internal_rules_never_calls_llm_provider_selection(self):
+        """`/internal/rules` (precise-thesis-review-pipeline Work Unit 5) MUST
+        be structurally incapable of an LLM call (design.md D9) — proven here
+        with a provider-call spy that raises if `select_llm_provider` is ever
+        invoked while handling this request, not just by absence of a
+        provider-related assertion."""
+        main = importlib.import_module("app.main")
+
+        def _spy(*_args, **_kwargs):
+            raise AssertionError(
+                "select_llm_provider must never be called by /internal/rules"
+            )
+
+        original = main.select_llm_provider
+        main.select_llm_provider = _spy
+        try:
+            response = self.client.post(
+                "/internal/rules",
+                json={
+                    "pages": [
+                        {
+                            "page_number": 1,
+                            "section_title": None,
+                            "text": "Es decir que el resultadoo fue positivo.",
+                        }
+                    ],
+                    "sections": [],
+                },
+            )
+        finally:
+            main.select_llm_provider = original
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertIn("findings", body)
+        self.assertIsInstance(body["findings"], list)
+        self.assertTrue(len(body["findings"]) > 0)
+        self.assertTrue(
+            all(f["producer_type"] == "deterministic_rule" for f in body["findings"])
+        )
+
+    def test_internal_rules_handles_empty_pages_and_sections_without_crashing(self):
+        response = self.client.post("/internal/rules", json={"pages": [], "sections": []})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"findings": []})
+
     def test_old_style_request_with_only_thesis_text_still_validates(self):
         """Backward compatibility: a caller that has not been updated to send
         provider fields (the pre-llm-provider-admin shape) must still be

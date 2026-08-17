@@ -72,9 +72,13 @@ class AnthropicProvider:
                 f"Claude API call failed: {exc}"
             ) from exc
 
-        text_blocks = [
-            block.text for block in response.content if getattr(block, "type", None) == "text"
-        ]
+        text_blocks = []
+        for block in response.content:
+            if getattr(block, "type", None) != "text":
+                continue
+            text = getattr(block, "text", None)
+            if isinstance(text, str):
+                text_blocks.append(text)
         if not text_blocks:
             raise AnthropicProviderUpstreamError(
                 "Claude API response contained no text content"

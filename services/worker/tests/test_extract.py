@@ -1,10 +1,13 @@
 import importlib
 import io
+import os
 import unittest
+from threading import Event
+from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
-from app.extraction import ExtractedPage, detect_sections
+from app.extraction import ExtractedPage, detect_sections, extract_text
 from fixtures import build_minimal_docx, build_minimal_pdf
 
 
@@ -228,6 +231,96 @@ class ExtractEndpointTest(unittest.TestCase):
         )
 
         self.assertEqual(response.status_code, 422)
+
+
+class MarkItDownLlmTextTest(unittest.TestCase):
+    def setUp(self):
+        self._previous_flag = os.environ.pop("PG1_ENABLE_MARKITDOWN_LLM_TEXT", None)
+
+    def tearDown(self):
+        if self._previous_flag is not None:
+            os.environ["PG1_ENABLE_MARKITDOWN_LLM_TEXT"] = self._previous_flag
+        else:
+            os.environ.pop("PG1_ENABLE_MARKITDOWN_LLM_TEXT", None)
+
+    def test_feature_flag_off_preserves_response_shape_without_llm_text(self):
+        docx_bytes = build_minimal_docx(["Legacy extractor text."])
+
+        def _factory_must_not_be_called():
+            raise AssertionError("MarkItDown converter must not be constructed")
+
+        result = extract_text(
+            filename="thesis.docx",
+            content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            data=docx_bytes,
+            markitdown_converter_factory=_factory_must_not_be_called,
+        )
+
+        body = result.to_dict()
+        self.assertIn("Legacy extractor text.", body["full_text"])
+        self.assertNotIn("llm_text", body)
+
+    def test_feature_flag_on_adds_llm_text_without_changing_pages_or_sections(self):
+        os.environ["PG1_ENABLE_MARKITDOWN_LLM_TEXT"] = "1"
+        docx_bytes = build_minimal_docx(["Legacy page text."])
+
+        class FakeConverter:
+            def convert(self, source: str) -> object:
+                self.source = source
+                return SimpleNamespace(text_content="# Markdown LLM text")
+
+        result = extract_text(
+            filename="thesis.docx",
+            content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            data=docx_bytes,
+            markitdown_converter_factory=FakeConverter,
+        )
+
+        body = result.to_dict()
+        self.assertEqual(body["llm_text"], "# Markdown LLM text")
+        self.assertIn("Legacy page text.", body["full_text"])
+        self.assertEqual(len(body["pages"]), 1)
+        self.assertIn("Legacy page text.", body["pages"][0]["text"])
+        self.assertEqual(body["sections"], [])
+
+    def test_feature_flag_on_markitdown_unavailable_falls_back_without_llm_text(self):
+        os.environ["PG1_ENABLE_MARKITDOWN_LLM_TEXT"] = "1"
+        docx_bytes = build_minimal_docx(["Legacy fallback text."])
+
+        def _unavailable_factory():
+            raise ImportError("markitdown is not installed")
+
+        result = extract_text(
+            filename="thesis.docx",
+            content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            data=docx_bytes,
+            markitdown_converter_factory=_unavailable_factory,
+        )
+
+        body = result.to_dict()
+        self.assertIn("Legacy fallback text.", body["full_text"])
+        self.assertNotIn("llm_text", body)
+
+    def test_feature_flag_on_markitdown_timeout_falls_back_without_llm_text(self):
+        os.environ["PG1_ENABLE_MARKITDOWN_LLM_TEXT"] = "1"
+        docx_bytes = build_minimal_docx(["Legacy timeout text."])
+
+        class SlowConverter:
+            def convert(self, source: str) -> object:
+                Event().wait(0.2)
+                return SimpleNamespace(text_content="too late")
+
+        result = extract_text(
+            filename="thesis.docx",
+            content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            data=docx_bytes,
+            markitdown_converter_factory=SlowConverter,
+            markitdown_timeout_seconds=0.01,
+        )
+
+        body = result.to_dict()
+        self.assertIn("Legacy timeout text.", body["full_text"])
+        self.assertNotIn("llm_text", body)
 
 
 if __name__ == "__main__":

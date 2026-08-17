@@ -84,7 +84,21 @@ def load_corpus(corpus_dir: Path = DEFAULT_CORPUS_DIR) -> str:
     return "\n\n".join(sections)
 
 
-def build_prompt(corpus_text: str, thesis_text: str) -> str:
+def build_prompt(
+    corpus_text: str,
+    thesis_text: str,
+    retrieved_context: list[dict[str, Any]] | None = None,
+) -> str:
+    if retrieved_context:
+        context_text = "\n\n".join(
+            f"### SOURCE: {item.get('source_ref', 'unknown')}\n{item.get('segment_text', '')}"
+            for item in retrieved_context
+        )
+        return (
+            f"{SYSTEM_PROMPT}\n\n"
+            f"=== RETRIEVED NORMATIVE CONTEXT ===\n{context_text}\n\n"
+            f"=== THESIS EXCERPT ===\n{thesis_text}\n"
+        )
     return (
         f"{SYSTEM_PROMPT}\n\n"
         f"=== NORMATIVE CORPUS ===\n{corpus_text}\n\n"
@@ -102,15 +116,25 @@ def _parse_response(raw: str) -> dict[str, Any]:
     return payload
 
 
+def _coerce_confidence(value: Any) -> float:
+    if value in (None, ""):
+        return 0.5
+    try:
+        return float(value)
+    except (TypeError, ValueError) as exc:
+        raise CagReviewError("Provider finding confidence must be numeric") from exc
+
+
 def run_cag_review(
     provider: LLMProvider,
     thesis_text: str,
     *,
     corpus_dir: Path = DEFAULT_CORPUS_DIR,
     model_label: str = "claude",
+    retrieved_context: list[dict[str, Any]] | None = None,
 ) -> CagFinding | None:
-    corpus_text = load_corpus(corpus_dir)
-    prompt = build_prompt(corpus_text, thesis_text)
+    corpus_text = "" if retrieved_context else load_corpus(corpus_dir)
+    prompt = build_prompt(corpus_text, thesis_text, retrieved_context)
     raw = provider.generate(prompt)
     payload = _parse_response(raw)
 
@@ -118,6 +142,7 @@ def run_cag_review(
     if finding is None:
         return None
     if not isinstance(finding, dict):
+        # pi-lens-ignore: unchecked-throwing-call-python
         raise CagReviewError("Provider 'finding' must be an object or null")
 
     missing = [field for field in REQUIRED_FINDING_FIELDS if not finding.get(field)]
@@ -127,7 +152,7 @@ def run_cag_review(
     return CagFinding(
         finding_type="rag_review",
         severity=finding.get("severity") or "medium",
-        confidence=float(finding.get("confidence") or 0.5),
+        confidence=_coerce_confidence(finding.get("confidence")),
         title=finding["title"],
         explanation=finding["explanation"],
         recommendation=finding["recommendation"],

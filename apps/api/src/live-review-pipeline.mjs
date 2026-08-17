@@ -5,6 +5,7 @@ import {
 	defaultRunCagReview,
 } from "./jobs/review-orchestrator.mjs";
 import { createProviderConfigRepository } from "./db/provider-config-repository.mjs";
+import { createDeterministicEmbeddingProvider } from "./embeddings/deterministic-embedding-provider.mjs";
 
 /**
  * Composition root for the LIVE (real Postgres + real worker) review
@@ -48,6 +49,7 @@ let cachedRepository = null;
 let cachedPipeline = null;
 let cachedNormativeSourceIds = null;
 let cachedProviderRepository = null;
+let cachedEmbeddingProvider = null;
 
 function databaseUrl() {
 	return process.env.DATABASE_URL || null;
@@ -70,11 +72,20 @@ function getRepository() {
  * genuine `review_run.status: "failed"` the first time a review is actually
  * triggered, exactly like every other resolution failure in this file.
  */
+function getEmbeddingProvider() {
+	if (!cachedEmbeddingProvider) {
+		cachedEmbeddingProvider = createDeterministicEmbeddingProvider();
+	}
+	return cachedEmbeddingProvider;
+}
+
 function getProviderRepository() {
 	const connectionString = databaseUrl();
 	if (!connectionString) return null;
 	if (!cachedProviderRepository) {
-		cachedProviderRepository = createProviderConfigRepository({ connectionString });
+		cachedProviderRepository = createProviderConfigRepository({
+			connectionString,
+		});
 	}
 	return cachedProviderRepository;
 }
@@ -93,7 +104,9 @@ function getProviderRepository() {
 async function runCagReviewWithActiveProvider({ thesisText }) {
 	const providerRepository = getProviderRepository();
 	if (!providerRepository) {
-		throw new Error("no active LLM provider configured: DATABASE_URL is not set");
+		throw new Error(
+			"no active LLM provider configured: DATABASE_URL is not set",
+		);
 	}
 	const active = await providerRepository.getActiveProvider();
 	if (!active) {
@@ -111,7 +124,11 @@ async function runCagReviewWithActiveProvider({ thesisText }) {
 	// handled the call, so it's the source of truth for provenance, carried
 	// alongside the worker's own result for `review-orchestrator.mjs` to
 	// persist on completion.
-	return { ...result, providerName: active.providerName, modelId: active.modelId };
+	return {
+		...result,
+		providerName: active.providerName,
+		modelId: active.modelId,
+	};
 }
 
 async function resolveNormativeSourceId(repository, ref) {
@@ -119,6 +136,16 @@ async function resolveNormativeSourceId(repository, ref) {
 		cachedNormativeSourceIds = await repository.seedNormativeSources();
 	}
 	return cachedNormativeSourceIds[ref] ?? null;
+}
+
+async function retrieveNormativeContext(repository, { thesisText }) {
+	const embeddingProvider = getEmbeddingProvider();
+	await repository.seedNormativeEmbeddings({ embeddingProvider });
+	return repository.retrieveNormativeContext({
+		queryText: thesisText,
+		embeddingProvider,
+		limit: 4,
+	});
 }
 
 async function extractViaWorker({ thesisDocumentId }) {
@@ -134,7 +161,8 @@ async function extractViaWorker({ thesisDocumentId }) {
 	formData.append(
 		"file",
 		new Blob([stored.content], {
-			type: stored.contentType || entry.contentType || "application/octet-stream",
+			type:
+				stored.contentType || entry.contentType || "application/octet-stream",
 		}),
 		entry.filename || "upload",
 	);
@@ -178,7 +206,10 @@ export function getLivePipeline() {
 			// provider fresh on every trigger instead of always calling Claude
 			// via the default env-var-only path.
 			runCagReview: runCagReviewWithActiveProvider,
-			resolveNormativeSourceId: (ref) => resolveNormativeSourceId(repository, ref),
+			resolveNormativeSourceId: (ref) =>
+				resolveNormativeSourceId(repository, ref),
+			retrieveNormativeContext: (args) =>
+				retrieveNormativeContext(repository, args),
 		});
 		cachedPipeline = {
 			lifecycle: pipeline.lifecycle,
@@ -238,6 +269,7 @@ export async function registerUploadedDocument({
 	filename,
 	fileSizeBytes,
 	uploaderUserId,
+	metadata = {},
 }) {
 	const repository = getRepository();
 	if (!repository) return { persisted: false };
@@ -250,6 +282,7 @@ export async function registerUploadedDocument({
 			storageKey,
 			sha256,
 			uploadedByUserId: uploaderUserId ?? 0,
+			metadata,
 		});
 		uploadedDocuments.set(documentId, {
 			dbId,

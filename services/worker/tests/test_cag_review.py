@@ -65,6 +65,29 @@ class CagReviewTest(unittest.TestCase):
         self.assertIn("Studies show thesis quality improves with review.", prompt)
         self.assertIn("NORMATIVE CORPUS", prompt)
 
+    def test_retrieved_context_prompt_uses_only_retrieved_segments_as_real_rag_context(self):
+        from app.cag_review import run_cag_review
+
+        provider = FakeLLMProvider(response_text=json.dumps({"finding": None}))
+
+        finding = run_cag_review(
+            provider,
+            "The thesis omits APA citation details.",
+            retrieved_context=[
+                {
+                    "source_ref": "guide.txt",
+                    "segment_text": "APA citation rules require references.",
+                    "similarity_score": 0.03,
+                }
+            ],
+        )
+
+        self.assertIsNone(finding)
+        prompt = provider.received_prompts[0]
+        self.assertIn("RETRIEVED NORMATIVE CONTEXT", prompt)
+        self.assertIn("APA citation rules require references.", prompt)
+        self.assertNotIn("NORMATIVE CORPUS", prompt)
+
     def test_ungrounded_excerpt_yields_no_finding(self):
         from app.cag_review import run_cag_review
 
@@ -87,6 +110,27 @@ class CagReviewTest(unittest.TestCase):
 
         provider = FakeLLMProvider(
             response_text=json.dumps({"finding": {"title": "Incomplete finding"}})
+        )
+
+        with self.assertRaises(CagReviewError):
+            run_cag_review(provider, "Some excerpt.")
+
+    def test_invalid_confidence_raises_cag_review_error_never_raw_value_error(self):
+        from app.cag_review import CagReviewError, run_cag_review
+
+        provider = FakeLLMProvider(
+            response_text=json.dumps(
+                {
+                    "finding": {
+                        "title": "Invalid confidence",
+                        "explanation": "The provider returned an invalid confidence.",
+                        "recommendation": "Return a numeric confidence.",
+                        "evidence_text": "Some excerpt.",
+                        "normative_source_ref": "guide.txt",
+                        "confidence": "not-a-number",
+                    }
+                }
+            )
         )
 
         with self.assertRaises(CagReviewError):

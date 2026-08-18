@@ -84,21 +84,21 @@ stand with cag_review.py still doing one call. PR5 remains the single highest-ri
 
 ### 4. Deterministic rule engine
 
-- [ ] RED: New `services/worker/tests/test_rules.py` — one case per module: filler-word lexicon match; long-sentence via `pysbd` (incl. "Dr. García" abbreviation NOT splitting, per spec); spelling flag gated by the lowercase/len>=4/no-acronym/no-digit/not-in-citation conservatism rule; citation-vs-reference cross-check both directions; GT structure missing-section check against the corpus-verified expected set; below-`MIN_RULE_CONFIDENCE=0.70` candidates discarded (spec: all 6 Deterministic Writing Rules requirements).
-- [ ] GREEN: Implement `services/worker/app/rules/{__init__,base,segmentation,filler_words,long_sentences,spelling,citations,gt_structure}.py` per D8; `run_rules(pages, sections) -> list[RuleFinding]` imports no provider module.
-- [ ] TRIANGULATE: Zero sections detected → GT structure check skipped entirely (no evidence, no finding), never fabricated.
-- [ ] REFACTOR: Extract shared normalization (accent/case fold) into `base.py`, reused by segmentation and citation matching.
-- [ ] Verify: `pnpm --dir services/worker test` green; assert `rules/__init__.py` has zero import of `app.providers.*` (import-boundary test from Scope Guard).
-- [ ] Rollback: delete `services/worker/app/rules/` package; `pyproject.toml` dep additions become unused but harmless.
+- [x] RED: New `services/worker/tests/test_rules.py` — one case per module: filler-word lexicon match; long-sentence via `pysbd` (incl. "Dr. García" abbreviation NOT splitting, per spec); spelling flag gated by the lowercase/len>=4/no-acronym/no-digit/not-in-citation conservatism rule; citation-vs-reference cross-check both directions; GT structure missing-section check against the corpus-verified expected set; below-`MIN_RULE_CONFIDENCE=0.70` candidates discarded (spec: all 6 Deterministic Writing Rules requirements).
+- [x] GREEN: Implement `services/worker/app/rules/{__init__,base,segmentation,filler_words,long_sentences,spelling,citations,gt_structure}.py` per D8; `run_rules(pages, sections) -> list[RuleFinding]` imports no provider module.
+- [x] TRIANGULATE: Zero sections detected → GT structure check skipped entirely (no evidence, no finding), never fabricated.
+- [x] REFACTOR: Extract shared normalization (accent/case fold) into `base.py`, reused by segmentation and citation matching.
+- [x] Verify: `pnpm --dir services/worker test` green; assert `rules/__init__.py` has zero import of `app.providers.*` (import-boundary test from Scope Guard).
+- [x] Rollback: delete `services/worker/app/rules/` package; `pyproject.toml` dep additions become unused but harmless.
 
 ### 5. `/internal/rules` endpoint + independent Node persistence
 
-- [ ] RED: `test_review_endpoint.py` case for `POST /internal/rules` (`{pages, sections}` in, `{findings}` out, zero LLM calls observed via a provider-call spy). `review-orchestrator.test.mjs` case: LLM path forced to throw → rule findings still persist with `producer_type='deterministic_rule'`, and the inverse (spec: Independence from the LLM Review Path).
-- [ ] GREEN: Add `/internal/rules` route in `main.py`; `review-orchestrator.mjs` calls `/internal/rules` and `/internal/review` in **separate** `try/catch` blocks, each persisting its own result set; `updateReviewRunStatus` gains `metadata` (COALESCE pattern) for `partial_failure` recording.
-- [ ] TRIANGULATE: Both paths failing → `status='failed'` (today's behavior, unchanged); exactly one failing → `status='completed'` with `metadata.partial_failure`.
-- [ ] REFACTOR: N/A — isolation is structural per D9, not a shared abstraction.
-- [ ] Verify: `pnpm --dir apps/api test && pnpm --dir services/worker test` green; manual run with a deliberately broken judgment provider still yields persisted rule findings.
-- [ ] Rollback: revert `main.py`'s new route and the orchestrator's independent rules call/persist; deterministic findings stop being produced, LLM path unaffected.
+- [x] RED: `test_review_endpoint.py` case for `POST /internal/rules` (`{pages, sections}` in, `{findings}` out, zero LLM calls observed via a provider-call spy). `review-orchestrator.test.mjs` case: LLM path forced to throw → rule findings still persist with `producer_type='deterministic_rule'`, and the inverse (spec: Independence from the LLM Review Path).
+- [x] GREEN: Add `/internal/rules` route in `main.py`; `review-orchestrator.mjs` calls `/internal/rules` and `/internal/review` in **separate** `try/catch` blocks, each persisting its own result set; `updateReviewRunStatus` gains `metadata` (COALESCE pattern) for `partial_failure` recording.
+- [x] TRIANGULATE: Both paths failing → `status='failed'` (today's behavior, unchanged); exactly one failing → `status='completed'` with `metadata.partial_failure`.
+- [x] REFACTOR: N/A — isolation is structural per D9, not a shared abstraction.
+- [x] Verify: `pnpm --dir apps/api test && pnpm --dir services/worker test` green; manual run with a deliberately broken judgment provider still yields persisted rule findings.
+- [x] Rollback: revert `main.py`'s new route and the orchestrator's independent rules call/persist; deterministic findings stop being produced, LLM path unaffected.
 
 ### 6. DOCX→PDF conversion
 

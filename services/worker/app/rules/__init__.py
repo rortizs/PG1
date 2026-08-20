@@ -11,7 +11,14 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from . import citations, filler_words, gt_structure, long_sentences, spelling
+from . import (
+    citations,
+    filler_words,
+    gt_structure,
+    long_sentences,
+    reglamento_structure,
+    spelling,
+)
 from .base import (
     MIN_RULE_CONFIDENCE,
     PRODUCER_ID,
@@ -20,7 +27,14 @@ from .base import (
     RuleFinding,
 )
 
-_RULE_MODULES = (filler_words, long_sentences, spelling, citations, gt_structure)
+_RULE_MODULES = (
+    filler_words,
+    long_sentences,
+    spelling,
+    citations,
+    gt_structure,
+    reglamento_structure,
+)
 
 
 def run_rules(pages: list[dict], sections: list[dict] | None = None) -> list[RuleFinding]:
@@ -57,7 +71,65 @@ def run_rules(pages: list[dict], sections: list[dict] | None = None) -> list[Rul
                     metadata={**finding.metadata, "precedence_tier": tier},
                 )
             )
-    return findings
+    return _apply_precedence(findings)
+
+
+def _apply_precedence(findings: list[RuleFinding]) -> list[RuleFinding]:
+    """thesis-normative-governance design.md D7, spec: Precedence Conflict
+    Arbitration. Findings without `metadata["conflict_key"]` pass through
+    untouched. Within a `conflict_key` group, the finding with the lowest
+    `precedence_tier` wins and stays active; every other finding in the
+    group is DEMOTED (severity lowered to `"low"`, stamped with
+    `metadata["superseded_by_higher_precedence"]`) — never dropped, since
+    dropping would destroy the audit trail this change exists to create.
+    Ties inside one tier resolve by first-emitted order (the order
+    `findings` already carries, i.e. `_RULE_MODULES` registration order).
+
+    **Documented limitation** (design.md D7's "honest TDD strategy for an
+    untestable-in-production path"): as of this change, zero
+    currently-registered module ever emits a `conflict_key` — see
+    `tests/test_rules.py::ConflictKeyLimitationGuardTest`. This function is
+    exercised directly with constructed `RuleFinding` fixtures instead of a
+    synthetic production rule."""
+    groups: dict[object, list[RuleFinding]] = {}
+    for finding in findings:
+        conflict_key = finding.metadata.get("conflict_key")
+        if conflict_key is None:
+            continue
+        groups.setdefault(conflict_key, []).append(finding)
+
+    winners = {
+        conflict_key: min(
+            group, key=lambda f: f.metadata.get("precedence_tier", float("inf"))
+        )
+        for conflict_key, group in groups.items()
+    }
+
+    resolved: list[RuleFinding] = []
+    for finding in findings:
+        conflict_key = finding.metadata.get("conflict_key")
+        if conflict_key is None:
+            resolved.append(finding)
+            continue
+        winner = winners[conflict_key]
+        if finding is winner:
+            resolved.append(finding)
+            continue
+        resolved.append(
+            replace(
+                finding,
+                severity="low",
+                metadata={
+                    **finding.metadata,
+                    "superseded_by_higher_precedence": {
+                        "winning_source_type": winner.normative_source_type,
+                        "winning_tier": winner.metadata.get("precedence_tier"),
+                        "winning_rule_id": winner.rule_id,
+                    },
+                },
+            )
+        )
+    return resolved
 
 
 __all__ = [

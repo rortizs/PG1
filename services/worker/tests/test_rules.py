@@ -8,7 +8,10 @@ structurally by `ImportBoundaryTest` below, not just by convention.
 from __future__ import annotations
 
 import ast
+import difflib
+import re
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 from app.rules import MIN_RULE_CONFIDENCE, run_rules
@@ -17,10 +20,11 @@ from app.rules import (
     filler_words,
     gt_structure,
     long_sentences,
+    reglamento_structure,
     segmentation,
     spelling,
 )
-from app.rules.base import RuleFinding, SOURCE_PRECEDENCE
+from app.rules.base import RuleFinding, SOURCE_PRECEDENCE, fold
 
 
 def _page(page_number, text):
@@ -323,6 +327,453 @@ class NormativeSourceStampingTest(unittest.TestCase):
                 run_rules([_page(1, "text")], [])
         finally:
             rules_module._RULE_MODULES = original_modules
+
+
+class Apa6EtAlThresholdTest(unittest.TestCase):
+    """thesis-normative-governance design.md D6, spec: APA 6 Citation Rules
+    — Et-al. Threshold Enforcement. A second, independent scanner over
+    `citations.py`'s pages — the existing uncited/unused cross-check
+    (`CitationsTest` above) is untouched."""
+
+    def test_two_authors_named_on_every_mention_produces_no_finding(self):
+        pages = [
+            _page(1, "Como indican (García & Pérez, 2020), el sistema mejora."),
+            _page(2, "Posteriormente, (García & Pérez, 2020) reafirman su postura."),
+        ]
+        findings = citations.check(pages, [])
+        et_al_findings = [f for f in findings if "et_al" in f.rule_id]
+        self.assertEqual(et_al_findings, [])
+
+    def test_four_authors_full_on_first_mention_et_al_on_second_produces_no_finding(self):
+        pages = [
+            _page(
+                1,
+                "Según (García, Pérez, López & Fuentes, 2020), el sistema mejora.",
+            ),
+            _page(2, "Más adelante, (García et al., 2020) lo confirman."),
+        ]
+        findings = citations.check(pages, [])
+        et_al_findings = [f for f in findings if "et_al" in f.rule_id]
+        self.assertEqual(et_al_findings, [])
+
+    def test_four_authors_full_on_a_second_mention_is_flagged(self):
+        pages = [
+            _page(
+                1,
+                "Según (García, Pérez, López & Fuentes, 2020), el sistema mejora.",
+            ),
+            _page(
+                2,
+                "Nuevamente, (García, Pérez, López & Fuentes, 2020) lo confirman.",
+            ),
+        ]
+        findings = citations.check(pages, [])
+        flagged = [
+            f
+            for f in findings
+            if f.rule_id == citations.ET_AL_REQUIRED_AFTER_FIRST_MENTION_RULE_ID
+        ]
+        self.assertEqual(len(flagged), 1)
+        self.assertIn("García", flagged[0].evidence_text)
+        self.assertEqual(flagged[0].page_number, 2)
+
+    def test_seven_authors_fully_named_on_first_mention_is_flagged(self):
+        pages = [
+            _page(
+                1,
+                "Según (García, Pérez, López, Fuentes, Ramírez, Castillo & "
+                "Morales, 2020), el sistema mejora la calidad.",
+            )
+        ]
+        findings = citations.check(pages, [])
+        flagged = [
+            f for f in findings if f.rule_id == citations.ET_AL_REQUIRED_SIX_AUTHORS_RULE_ID
+        ]
+        self.assertEqual(len(flagged), 1)
+        self.assertIn("García", flagged[0].evidence_text)
+        self.assertGreaterEqual(flagged[0].confidence, MIN_RULE_CONFIDENCE)
+
+    def test_correct_et_al_usage_for_six_plus_authors_produces_no_finding(self):
+        pages = [_page(1, "Según (García et al., 2020), el sistema mejora.")]
+        findings = citations.check(pages, [])
+        flagged = [
+            f for f in findings if f.rule_id == citations.ET_AL_REQUIRED_SIX_AUTHORS_RULE_ID
+        ]
+        self.assertEqual(flagged, [])
+
+    def test_et_al_citation_whose_reference_names_exactly_two_authors_is_flagged(self):
+        pages = [
+            _page(1, "Como señalan (García et al., 2020), el sistema mejora."),
+            _page(
+                10,
+                "Referencias\nGarcía, A., & Pérez, B. (2020). Estudio con dos "
+                "autores. Editorial Z.",
+            ),
+        ]
+        sections = [
+            {
+                "index": 0,
+                "section_type": "references",
+                "start_page_number": 10,
+                "end_page_number": 10,
+            }
+        ]
+        findings = citations.check(pages, sections)
+        flagged = [
+            f for f in findings if f.rule_id == citations.ET_AL_ON_TWO_AUTHOR_SOURCE_RULE_ID
+        ]
+        self.assertEqual(len(flagged), 1)
+        self.assertIn("García et al", flagged[0].evidence_text)
+
+    def test_et_al_citation_whose_reference_names_three_authors_is_not_flagged(self):
+        pages = [
+            _page(1, "Como señalan (García et al., 2020), el sistema mejora."),
+            _page(
+                10,
+                "Referencias\nGarcía, A., Pérez, B., & López, C. (2020). Estudio "
+                "con tres autores. Editorial Z.",
+            ),
+        ]
+        sections = [
+            {
+                "index": 0,
+                "section_type": "references",
+                "start_page_number": 10,
+                "end_page_number": 10,
+            }
+        ]
+        findings = citations.check(pages, sections)
+        flagged = [
+            f for f in findings if f.rule_id == citations.ET_AL_ON_TWO_AUTHOR_SOURCE_RULE_ID
+        ]
+        self.assertEqual(flagged, [])
+
+    def test_et_al_citation_with_no_resolvable_reference_entry_is_not_flagged(self):
+        # design.md D6: "only when the reference entry resolves" -- an
+        # unresolved et al. citation is not checkable, never fabricated.
+        pages = [_page(1, "Como señalan (García et al., 2020), el sistema mejora.")]
+        findings = citations.check(pages, [])
+        flagged = [
+            f for f in findings if f.rule_id == citations.ET_AL_ON_TWO_AUTHOR_SOURCE_RULE_ID
+        ]
+        self.assertEqual(flagged, [])
+
+    def test_pre_existing_cross_check_fixtures_remain_unaffected_by_the_new_scanner(self):
+        # Regression guard (design.md D6): the new et-al scanner must not
+        # change the pre-existing uncited/unused cross-check's output for
+        # the same fixtures CitationsTest already exercises.
+        pages = [
+            _page(1, "Según lo indicado (García, 2020), el sistema mejora la calidad."),
+            _page(
+                10,
+                "Referencias\nPérez, J. (2019). Otro estudio relacionado. Editorial X.",
+            ),
+        ]
+        sections = [
+            {
+                "index": 0,
+                "section_type": "references",
+                "start_page_number": 10,
+                "end_page_number": 10,
+            }
+        ]
+        findings = citations.check(pages, sections)
+        uncited = [
+            f for f in findings if f.rule_id == "citations.uncited_reference_missing"
+        ]
+        self.assertTrue(any("García" in f.evidence_text for f in uncited))
+        et_al_findings = [f for f in findings if "et_al" in f.rule_id]
+        self.assertEqual(et_al_findings, [])
+
+
+class Apa6QuoteLengthTest(unittest.TestCase):
+    """thesis-normative-governance design.md D6, spec: APA 6 Citation Rules
+    — Quote-Length Formatting Rule."""
+
+    def test_short_inline_quote_under_forty_words_produces_no_finding(self):
+        quote = " ".join(["palabra"] * 25)
+        pages = [_page(1, f'El autor señala que "{quote}" en su análisis.')]
+        findings = citations.check(pages, [])
+        flagged = [f for f in findings if f.rule_id == citations.LONG_QUOTE_NOT_BLOCK_RULE_ID]
+        self.assertEqual(flagged, [])
+
+    def test_fifty_five_word_inline_quote_is_flagged(self):
+        quote = " ".join(["palabra"] * 55)
+        pages = [_page(1, f'El autor señala que "{quote}" en su análisis.')]
+        findings = citations.check(pages, [])
+        flagged = [f for f in findings if f.rule_id == citations.LONG_QUOTE_NOT_BLOCK_RULE_ID]
+        self.assertEqual(len(flagged), 1)
+        self.assertIn("palabra", flagged[0].evidence_text)
+        self.assertEqual(flagged[0].metadata.get("word_count"), 55)
+
+    def test_unterminated_quotation_mark_never_hangs_or_swallows_the_page(self):
+        # ReDoS guard (design.md D6, threat matrix): an unmatched quote mark
+        # must not hang the regex engine or swallow the rest of the page.
+        long_tail = " ".join(["palabra"] * 5000)
+        pages = [_page(1, f'Texto con comilla suelta " y luego {long_tail}')]
+        findings = citations.check(pages, [])  # must return, not hang
+        self.assertIsInstance(findings, list)
+
+
+class ThirtyNineWordQuoteBoundaryTest(unittest.TestCase):
+    def test_exactly_forty_words_is_flagged_thirty_nine_is_not(self):
+        quote_39 = " ".join(["palabra"] * 39)
+        quote_40 = " ".join(["palabra"] * 40)
+        pages_39 = [_page(1, f'Dice que "{quote_39}" en el texto.')]
+        pages_40 = [_page(1, f'Dice que "{quote_40}" en el texto.')]
+        findings_39 = citations.check(pages_39, [])
+        findings_40 = citations.check(pages_40, [])
+        self.assertEqual(
+            [f for f in findings_39 if f.rule_id == citations.LONG_QUOTE_NOT_BLOCK_RULE_ID],
+            [],
+        )
+        self.assertEqual(
+            len([f for f in findings_40 if f.rule_id == citations.LONG_QUOTE_NOT_BLOCK_RULE_ID]),
+            1,
+        )
+
+
+class PrecedenceArbitrationTest(unittest.TestCase):
+    """thesis-normative-governance design.md D7, spec: Precedence Conflict
+    Arbitration. `_apply_precedence` is a pure function over a list,
+    triangulated directly with constructed `RuleFinding` fixtures -- no
+    fake module, no synthetic production rule (design.md D7's "honest TDD
+    strategy for an untestable-in-production path")."""
+
+    @staticmethod
+    def _finding(**overrides):
+        defaults = dict(
+            finding_type="structure",
+            severity="high",
+            confidence=0.9,
+            title="t",
+            explanation="e",
+            recommendation="r",
+            evidence_text="ev",
+            page_number=5,
+            section_index=None,
+            rule_id="fake.rule",
+            metadata={},
+        )
+        defaults.update(overrides)
+        return RuleFinding(**defaults)
+
+    def test_lower_tier_finding_sharing_a_conflict_key_is_demoted(self):
+        import app.rules as rules_module
+
+        tier1 = self._finding(
+            rule_id="reglamento_structure.articulo_8_altered",
+            normative_source_type="reglamento_tesis",
+            metadata={"conflict_key": "art8-text", "precedence_tier": 1},
+        )
+        tier3 = self._finding(
+            rule_id="gt_structure.missing_required_section",
+            severity="high",
+            normative_source_type="gt_guide",
+            metadata={"conflict_key": "art8-text", "precedence_tier": 3},
+        )
+        resolved = rules_module._apply_precedence([tier3, tier1])
+
+        winner = next(f for f in resolved if f.rule_id == tier1.rule_id)
+        loser = next(f for f in resolved if f.rule_id == tier3.rule_id)
+
+        self.assertEqual(winner.severity, "high")
+        self.assertNotIn("superseded_by_higher_precedence", winner.metadata)
+
+        self.assertEqual(loser.severity, "low")
+        self.assertEqual(
+            loser.metadata["superseded_by_higher_precedence"],
+            {
+                "winning_source_type": "reglamento_tesis",
+                "winning_tier": 1,
+                "winning_rule_id": "reglamento_structure.articulo_8_altered",
+            },
+        )
+        # demoted, never dropped -- both findings survive
+        self.assertEqual(len(resolved), 2)
+
+    def test_findings_without_a_shared_conflict_key_are_unaffected(self):
+        import app.rules as rules_module
+
+        a = self._finding(rule_id="a.rule", metadata={"precedence_tier": 1})
+        b = self._finding(rule_id="b.rule", metadata={"precedence_tier": 3})
+        resolved = rules_module._apply_precedence([a, b])
+        self.assertEqual(resolved, [a, b])
+
+    def test_three_way_same_tier_tie_resolves_by_first_emitted_order(self):
+        import app.rules as rules_module
+
+        first = self._finding(rule_id="first.rule", metadata={"conflict_key": "k", "precedence_tier": 2})
+        second = self._finding(rule_id="second.rule", metadata={"conflict_key": "k", "precedence_tier": 2})
+        third = self._finding(rule_id="third.rule", metadata={"conflict_key": "k", "precedence_tier": 2})
+        resolved = rules_module._apply_precedence([first, second, third])
+
+        winner = next(f for f in resolved if f.rule_id == "first.rule")
+        self.assertNotIn("superseded_by_higher_precedence", winner.metadata)
+        for loser_rule_id in ("second.rule", "third.rule"):
+            loser = next(f for f in resolved if f.rule_id == loser_rule_id)
+            self.assertEqual(
+                loser.metadata["superseded_by_higher_precedence"]["winning_rule_id"],
+                "first.rule",
+            )
+
+    def test_run_rules_wires_apply_precedence_as_its_final_step(self):
+        # A finding constructed with a conflict_key would never survive
+        # run_rules() untouched if _apply_precedence were not wired in --
+        # proven here via a fixture module returning two conflicting
+        # findings directly (no real production module emits conflict_key
+        # today; see ConflictKeyLimitationGuardTest below).
+        import app.rules as rules_module
+
+        class FakeConflictingModule:
+            NORMATIVE_SOURCE_TYPE = "reglamento_tesis"
+
+            @staticmethod
+            def check(pages, sections):
+                return [
+                    RuleFinding(
+                        finding_type="structure",
+                        severity="high",
+                        confidence=0.95,
+                        title="tier1",
+                        explanation="e",
+                        recommendation="r",
+                        evidence_text="ev1",
+                        page_number=1,
+                        section_index=None,
+                        rule_id="fake.tier1",
+                        metadata={"conflict_key": "shared-key"},
+                    ),
+                ]
+
+        class FakeLosingModule:
+            NORMATIVE_SOURCE_TYPE = "gt_guide"
+
+            @staticmethod
+            def check(pages, sections):
+                return [
+                    RuleFinding(
+                        finding_type="writing_style",
+                        severity="high",
+                        confidence=0.95,
+                        title="tier3",
+                        explanation="e",
+                        recommendation="r",
+                        evidence_text="ev3",
+                        page_number=1,
+                        section_index=None,
+                        rule_id="fake.tier3",
+                        metadata={"conflict_key": "shared-key"},
+                    ),
+                ]
+
+        original_modules = rules_module._RULE_MODULES
+        rules_module._RULE_MODULES = (FakeConflictingModule(), FakeLosingModule())
+        try:
+            findings = run_rules([_page(1, "text")], [])
+        finally:
+            rules_module._RULE_MODULES = original_modules
+
+        loser = next(f for f in findings if f.rule_id == "fake.tier3")
+        self.assertEqual(loser.severity, "low")
+        self.assertIn("superseded_by_higher_precedence", loser.metadata)
+
+
+class ConflictKeyLimitationGuardTest(unittest.TestCase):
+    """thesis-normative-governance design.md D7's documented, deliberate
+    limitation: zero currently-registered rule module emits a
+    `conflict_key`. This test fails loudly the day a real one is
+    introduced without deliberate review of the arbitration behavior --
+    it must NEVER be satisfied by fabricating a synthetic production rule."""
+
+    def test_no_currently_registered_module_emits_a_conflict_key(self):
+        pages = [
+            _page(
+                1,
+                "Es decir que el resultadoo del sistema, o sea, funciona "
+                "correctamente segun el analisis.",
+            ),
+            _page(
+                2,
+                " ".join(["palabra"] * 45) + ". "
+                'El autor señala que "' + " ".join(["palabra"] * 55) + '" en su análisis.',
+            ),
+            _page(
+                5,
+                "REGLAMENTO DE TESIS\n\nArtículo 8°: RESPONSABILIDAD\n\n"
+                "Texto alterado que no coincide con el original exigido.",
+            ),
+            _page(
+                10,
+                "Referencias\nGarcía, A., & Pérez, B. (2020). Estudio con dos "
+                "autores. Editorial Z.",
+            ),
+        ]
+        sections = [
+            {
+                "index": 0,
+                "title": "Introducción",
+                "normalized_title": "introduccion",
+                "section_type": "chapter",
+            },
+            {
+                "index": 1,
+                "section_type": "references",
+                "start_page_number": 10,
+                "end_page_number": 10,
+            },
+        ]
+        findings = run_rules(pages, sections)
+        self.assertGreater(
+            len(findings), 3, "fixture should exercise multiple rule modules"
+        )
+        offending = [f.rule_id for f in findings if "conflict_key" in f.metadata]
+        self.assertEqual(
+            offending,
+            [],
+            "a registered module now emits conflict_key -- this is a deliberate "
+            "design change (design.md D7), review before enabling arbitration "
+            "coverage for it: " + str(offending),
+        )
+
+
+class NonGoalsStructuralGuardTest(unittest.TestCase):
+    """thesis-normative-governance design.md D8, spec: Physical-Layout
+    Non-Goal. Enforced structurally: no registered module's `*_RULE_ID`
+    constant may claim layout coverage the extraction pipeline cannot
+    support."""
+
+    _LAYOUT_TOKEN_PATTERN = re.compile(
+        r"margen|interlineado|fuente|sangria|cursiva|paginacion"
+    )
+
+    def test_scanner_correctly_fails_against_a_deliberately_violating_rule_id(self):
+        # Proves the scanner is not a no-op before trusting its clean pass.
+        violating = "reglamento_structure.margen_incorrecto"
+        self.assertIsNotNone(self._LAYOUT_TOKEN_PATTERN.search(fold(violating)))
+        # Accent-bearing variant also caught, mid-string.
+        self.assertIsNotNone(
+            self._LAYOUT_TOKEN_PATTERN.search(fold("some.rule_id_with_márgen_inside"))
+        )
+
+    def test_no_registered_module_declares_a_layout_related_rule_id(self):
+        import app.rules as rules_module
+
+        offending: list[str] = []
+        for module in rules_module._RULE_MODULES:
+            for name in dir(module):
+                if "RULE_ID" not in name:
+                    continue
+                value = getattr(module, name)
+                if not isinstance(value, str):
+                    continue
+                if self._LAYOUT_TOKEN_PATTERN.search(fold(value)):
+                    offending.append(f"{module.__name__}.{name}={value}")
+        self.assertEqual(
+            offending,
+            [],
+            f"layout-related rule_id constants found (design.md D8): {offending}",
+        )
 
 
 if __name__ == "__main__":

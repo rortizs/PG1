@@ -203,7 +203,7 @@ stays PR2 scope.
 
 ### 7. `reglamento_structure.py` (new module, D5)
 
-- [ ] RED: `services/worker/tests/test_reglamento_structure.py` — correct 6-element preliminary
+- [x] RED: `services/worker/tests/test_reglamento_structure.py` — correct 6-element preliminary
       sequence in order produces no finding; a missing "autoridades y tribunal" page produces
       `missing_preliminary_page`; an out-of-order sequence produces
       `preliminary_page_out_of_order`; exact Artículo 8° text produces no finding; a
@@ -211,86 +211,94 @@ stays PR2 scope.
       <0.85 across every page produces `articulo_8_missing`; empty `pages` or fewer than
       `PRELIMINARY_SCAN_PAGES` pages with no text returns `[]`. Before implementation:
       `ModuleNotFoundError: services.worker.app.rules.reglamento_structure`.
-- [ ] GREEN: Implement `reglamento_structure.py` per D5 (`PRELIMINARY_SCAN_PAGES=8`,
+- [x] GREEN: Implement `reglamento_structure.py` per D5 (`PRELIMINARY_SCAN_PAGES=8`,
       `REQUIRED_ARTICLE_8_TEXT`, `PRELIMINARY_SEQUENCE`, `squeeze()`-based phrase matching,
       the 0.85 altered/missing split); register the module in `__init__.py`'s `_RULE_MODULES`.
-- [ ] TRIANGULATE: intra-word-split PDF text (`"numeraci ón"`, `"m ismas"`, `"marg en"`) still
-      matches via `squeeze()`; a ratio of exactly 0.849 classifies `missing`, 0.85 classifies
-      `altered` (boundary case is exercised explicitly, not left implicit).
-- [ ] REFACTOR: extract the shared squeeze-based phrase-matching helper if the
-      missing/out-of-order/altered checks start duplicating it.
-- [ ] Verify: `pnpm --dir services/worker test` green.
-- [ ] Rollback: delete `reglamento_structure.py` and its `_RULE_MODULES` registration together
+- [x] TRIANGULATE: intra-word-split PDF text (`"numeraci ón"`, `"m ismas"`, `"marg en"`) still
+      matches via `squeeze()`; a ratio boundary exercised explicitly via a computed (not
+      hardcoded) at-or-above-0.85 vs below-0.85 candidate pair — see "Deviations" below.
+- [x] REFACTOR: N/A — no duplication emerged between the missing/out-of-order/altered checks
+      worth extracting beyond the already-shared `squeeze()`/`_sorted_pages()` helpers.
+- [x] Verify: `pnpm --dir services/worker test` green (103/103, full suite).
+- [x] Rollback: delete `reglamento_structure.py` and its `_RULE_MODULES` registration together
       (one revertable unit — the module has no other caller).
 
 ### 8. `citations.py` APA-6 additions (D6)
 
-- [ ] RED: `test_citations.py` additions — a 2-author citation repeated across mentions
+- [x] RED: `test_rules.py` additions (`Apa6EtAlThresholdTest`, `Apa6QuoteLengthTest`,
+      `ThirtyNineWordQuoteBoundaryTest`) — a 2-author citation repeated across mentions
       produces no et-al. finding; a 4-author citation fully named on first mention and
       abbreviated on the second produces no finding; a 7-author citation fully named on its
       first mention produces `et_al_required_six_authors`; an `"X et al."` citation whose
       reference entry names exactly 2 authors produces `et_al_on_two_author_source`; a 25-word
       inline quoted span produces no finding; a 55-word inline (non-block) quoted span produces
       `long_quote_not_block`. Before implementation none of these `rule_id`s exist —
-      each assertion fails with "expected a finding, found none."
-- [ ] GREEN: Implement the 4 checks from D6's table as a second, independent scanner over the
-      same extracted text (the existing citation-vs-reference cross-check is untouched); add
-      `NORMATIVE_SOURCE_TYPE = "apa_6"`; bounded author-group/quote-span regex with
-      `MAX_QUOTE_SPAN_CHARS = 2000` as the ReDoS guard.
-- [ ] TRIANGULATE: an unterminated quotation mark spanning past `MAX_QUOTE_SPAN_CHARS` does not
-      hang and does not swallow the rest of the page; the pre-existing citation-vs-reference
-      cross-check test cases remain green, unmodified by the new scanner.
-- [ ] REFACTOR: factor the shared author-list-parsing regex between the three et-al. checks if
-      it is duplicated three times.
-- [ ] Verify: `pnpm --dir services/worker test` green, including the untouched pre-existing
-      `citations.py` test cases (regression check).
-- [ ] Rollback: revert only the D6 additions; the pre-existing cross-check function and its
+      each assertion failed with "expected a finding, found none" (0 != 1).
+- [x] GREEN: Implemented the 4 checks from D6's table as a second, independent scanner
+      (`_check_et_al_and_quotes`) over the same extracted text (the existing
+      citation-vs-reference cross-check is untouched); added `NORMATIVE_SOURCE_TYPE = "apa_6"`
+      (PR1); bounded author-group/quote-span regex with `MAX_QUOTE_SPAN_CHARS = 2000` as the
+      ReDoS guard.
+- [x] TRIANGULATE: an unterminated quotation mark spanning 5000+ words past
+      `MAX_QUOTE_SPAN_CHARS` does not hang and does not swallow the rest of the page (verified);
+      the pre-existing citation-vs-reference cross-check test cases remain green, unmodified by
+      the new scanner (explicit regression-guard test added); 39-word vs 40-word boundary
+      exercised explicitly.
+- [x] REFACTOR: N/A — the three et-al. checks share `_AUTHOR_TOKEN_PATTERN`/`_citation_key`
+      already; no further duplication to factor.
+- [x] Verify: `pnpm --dir services/worker test` green, including the untouched pre-existing
+      `citations.py` test cases (regression check) — 39/39 in `test_rules.py`.
+- [x] Rollback: revert only the D6 additions; the pre-existing cross-check function and its
       tests are untouched and keep working.
 
 ### 9. `_apply_precedence()` + limitation-guard test (D7)
 
-- [ ] RED: (a) A constructed-fixture test — two `RuleFinding` objects share
+- [x] RED: (a) A constructed-fixture test — two `RuleFinding` objects share
       `metadata={"conflict_key": "art8-text"}`, one stamped tier 1 (`reglamento_tesis`), one
-      tier 3 (`gt_guide`). Before `_apply_precedence()` exists, both findings pass through
-      unmodified, so asserting the tier-3 finding's metadata contains
-      `superseded_by_higher_precedence` fails with `KeyError`. (b) A limitation-guard test
+      tier 3 (`gt_guide`). Before `_apply_precedence()` exists, `AttributeError: module
+      'app.rules' has no attribute '_apply_precedence'` — confirmed. (b) A limitation-guard test
       asserts that **zero** of the currently-registered `_RULE_MODULES` ever emit a finding with
-      a `conflict_key` across a representative fixture run — this documents, in executable
-      form, that no real production conflict exists to arbitrate today, and will fail loudly
-      the day a real one is introduced without review.
-- [ ] GREEN: Implement `_apply_precedence(findings)` per D7 — group by `conflict_key`, keep the
-      lowest `precedence_tier` active, demote losers to `severity="low"` plus
+      a `conflict_key` across a representative fixture run (filler/long-sentence/spelling/
+      citations/gt_structure/reglamento_structure all exercised, 4+ findings produced) — this
+      documents, in executable form, that no real production conflict exists to arbitrate today.
+- [x] GREEN: Implemented `_apply_precedence(findings)` per D7 — two-pass (group-then-resolve,
+      preserving original list order for passthrough findings) grouping by `conflict_key`, keeps
+      the lowest `precedence_tier` active, demotes losers to `severity="low"` plus
       `metadata["superseded_by_higher_precedence"] = {winning_source_type, winning_tier,
-      winning_rule_id}`, tie-break by module registration order; wire it as `run_rules()`'s
-      final step.
-- [ ] TRIANGULATE: findings without a `conflict_key` metadata key pass through completely
-      unmodified (spec: "Findings without a shared conflict_key are unaffected"); a
-      constructed 3-way same-tier tie resolves deterministically by registration order, not
-      arbitrarily.
-- [ ] REFACTOR: N/A — pure function over a list, already minimal per the design's honest-TDD
+      winning_rule_id}` via `dataclasses.replace()`, tie-break by first-emitted (list) order via
+      `min()`'s stable tie behavior; wired as `run_rules()`'s final `return` step.
+- [x] TRIANGULATE: findings without a `conflict_key` metadata key pass through completely
+      unmodified (asserted `resolved == [a, b]`, identity-equal); a constructed 3-way same-tier
+      tie resolves deterministically to the first-emitted finding, not arbitrarily; an
+      end-to-end `run_rules()` wiring test with two fixture modules sharing a `conflict_key`
+      confirms real integration, not just direct-function-call coverage.
+- [x] REFACTOR: N/A — pure function over a list, already minimal per the design's honest-TDD
       note; no synthetic production rule was added to manufacture a fake conflict.
-- [ ] Verify: `pnpm --dir services/worker test` green, including both the demotion fixture and
+- [x] Verify: `pnpm --dir services/worker test` green, including both the demotion fixture and
       the limitation-guard test.
-- [ ] Rollback: revert `_apply_precedence()` and its call from `run_rules()`; since no real
+- [x] Rollback: revert `_apply_precedence()` and its call from `run_rules()`; since no real
       module currently emits `conflict_key`, no production finding's shape changes.
 
 ### 10. D8 non-goals structural enforcement
 
-- [ ] RED: A new scanner test walks every registered module's `rule_id` string constants,
-      case/accent-folds them, and checks for the tokens
+- [x] RED: A new scanner test (`NonGoalsStructuralGuardTest`) walks every registered module's
+      `*_RULE_ID` string constants, case/accent-folds them, and checks for the tokens
       `margen|interlineado|fuente|sangria|cursiva|paginacion`. It first asserts the scanner
-      correctly *fails* against a fixture `rule_id` containing `"margen_incorrecto"`, proving
-      the scanner isn't a no-op, then asserts it passes clean against every real registered
-      module's `rule_id`s.
-- [ ] GREEN: Add the `NOT_COVERED` module-level prose constant to `reglamento_structure.py` per
-      D8; land the scanning test as a permanent structural guard alongside the module-registry
-      introspection tests.
-- [ ] TRIANGULATE: the scanner also catches an accent-bearing variant (`"márgen"` folds to
-      `"margen"`) and a token embedded mid-string, not only an exact `rule_id` match.
-- [ ] REFACTOR: N/A — assertion-only guard.
-- [ ] Verify: `pnpm --dir services/worker test` green, including the fixture self-test that
+      correctly *fails* against a fixture `rule_id` containing `"margen_incorrecto"` (and an
+      accent-bearing `"márgen"` embedded mid-string), proving the scanner isn't a no-op, then
+      asserts it passes clean against every real registered module's `rule_id`s. Before
+      `NOT_COVERED` and its registration landed, this ran against a smaller module set (no
+      `reglamento_structure`) — genuinely exercised as part of Work Unit 7's registration step.
+- [x] GREEN: Added the `NOT_COVERED` module-level prose constant to `reglamento_structure.py`
+      per D8; the scanning test is a permanent structural guard alongside the module-registry
+      introspection tests in `test_rules.py`.
+- [x] TRIANGULATE: the scanner also catches an accent-bearing variant (`"márgen"` folds to
+      `"margen"`) and a token embedded mid-string, not only an exact `rule_id` match — both
+      asserted directly in `test_scanner_correctly_fails_against_a_deliberately_violating_rule_id`.
+- [x] REFACTOR: N/A — assertion-only guard.
+- [x] Verify: `pnpm --dir services/worker test` green, including the fixture self-test that
       proves the scanner is not a no-op.
-- [ ] Rollback: N/A — test-only guard; removal only drops the future-regression tripwire, no
+- [x] Rollback: N/A — test-only guard; removal only drops the future-regression tripwire, no
       production behavior changes.
 
 ## Suggested PR Chain

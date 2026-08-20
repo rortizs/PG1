@@ -11,7 +11,13 @@ export const DEFAULT_CORPUS_DIR = fileURLToPath(
 export const DEFAULT_SOURCE_TYPE_BY_FILE = {
 	"tesis_guia_trabajo_gt.txt": "gt_guide",
 	"plantilla_sugerida_trabajo_graduacion.txt": "gt_guide",
-	"lineamientos_ingenieria_sistemas.txt": "rubric",
+	// thesis-normative-governance design.md D1/D4: this file is the library
+	// Reglamento (verified: contains "REGLAMENTO DE TESIS", "Artículo 8°:
+	// RESPONSABILIDAD" verbatim), not a rubric. A fresh DB now seeds the
+	// correct type directly; `0006_normative_governance.sql`'s UPDATE only
+	// matters for a pre-existing DB that already seeded the old `'rubric'`
+	// type before this migration ran.
+	"lineamientos_ingenieria_sistemas.txt": "reglamento_tesis",
 	"ejemplo_para_guia.txt": "example_observation",
 };
 
@@ -209,6 +215,31 @@ export function createReviewRepository({ client, connectionString } = {}) {
 					idByFile[file] = toId(inserted.rows[0].id);
 				}
 				return idByFile;
+			});
+		},
+
+		/**
+		 * thesis-normative-governance design.md D4: resolves one real
+		 * `normative_source.id` per `source_type` — deterministic even when a
+		 * type has several rows (`gt_guide` has two corpus files today):
+		 * `DISTINCT ON (source_type)` orders by `precedence` then `id`, so the
+		 * lowest-tier, lowest-id row always wins, never an arbitrary one.
+		 * Consumed by `live-review-pipeline.mjs`'s `resolveNormativeSourceId`
+		 * to widen its cached key space beyond corpus filenames (D4).
+		 */
+		async getNormativeSourceIdsBySourceType() {
+			return run(async (pgClient) => {
+				// pi-lens-ignore: ast-grep:no-sql-in-code-js
+				const result = await pgClient.query(
+					`SELECT DISTINCT ON (source_type) source_type, id
+					 FROM normative_source
+					 ORDER BY source_type, precedence, id`,
+				);
+				const idBySourceType = {};
+				for (const row of result.rows) {
+					idBySourceType[row.source_type] = toId(row.id);
+				}
+				return idBySourceType;
 			});
 		},
 

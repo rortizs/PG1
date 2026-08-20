@@ -53,7 +53,11 @@ test("review-repository seeds normative sources and writes thesis_document -> re
 		const countRows = await client.query(
 			"SELECT count(*)::int AS count FROM normative_source",
 		);
-		assert.equal(countRows.rows[0].count, 4);
+		// 4 corpus files + 1 metadata-only `apa_6` row seeded by
+		// `0006_normative_governance.sql` (thesis-normative-governance design.md
+		// D1 — `apa_6` has no corpus .txt file, so the migration seeds it
+		// directly; `seedNormativeSources()` only ever inserts corpus files).
+		assert.equal(countRows.rows[0].count, 5);
 
 		const thesisDocumentId = await repository.insertThesisDocument({
 			originalFilename: "thesis.pdf",
@@ -535,6 +539,45 @@ test("review-repository rejects a candidate finding with zero evidence rows — 
 			[reviewRunId],
 		);
 		assert.equal(findingCount.rows[0].count, 0);
+
+		await migrate.migrateDown({ client });
+	} finally {
+		await client.end();
+	}
+});
+
+test("getNormativeSourceIdsBySourceType picks one deterministic id per source_type, lowest precedence/id first (thesis-normative-governance design.md D4)", async (t) => {
+	const client = await connectOrSkip(t);
+	if (!client) return;
+
+	const migrate = await import("../src/db/migrate.mjs");
+	const { createReviewRepository } = await import(
+		"../src/db/review-repository.mjs"
+	);
+
+	try {
+		await migrate.migrateDown({ client }).catch(() => {});
+		await migrate.migrateUp({ client });
+
+		const repository = createReviewRepository({ client });
+		// gt_guide has two corpus rows (tesis_guia_trabajo_gt.txt,
+		// plantilla_sugerida_trabajo_graduacion.txt) — a real multi-row case
+		// for the same source_type, exercised without any synthetic fixture.
+		await repository.seedNormativeSources();
+
+		const idsByType = await repository.getNormativeSourceIdsBySourceType();
+
+		assert.ok(Number.isInteger(idsByType.reglamento_tesis));
+		assert.ok(Number.isInteger(idsByType.apa_6));
+		assert.ok(Number.isInteger(idsByType.gt_guide));
+		assert.ok(Number.isInteger(idsByType.example_observation));
+
+		// Deterministic: the lowest-precedence (then lowest-id) row of the
+		// two gt_guide rows is picked, not an arbitrary one.
+		const gtGuideRows = await client.query(
+			`SELECT id FROM normative_source WHERE source_type = 'gt_guide' ORDER BY precedence, id LIMIT 1`,
+		);
+		assert.equal(idsByType.gt_guide, Number(gtGuideRows.rows[0].id));
 
 		await migrate.migrateDown({ client });
 	} finally {

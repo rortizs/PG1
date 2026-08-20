@@ -131,9 +131,21 @@ async function runCagReviewWithActiveProvider({ thesisText }) {
 	};
 }
 
-async function resolveNormativeSourceId(repository, ref) {
+/**
+ * thesis-normative-governance design.md D4: same function, same signature,
+ * same single cache — widened, not forked. `ref` may be either a corpus
+ * filename (pre-existing CAG path, `*.txt`) or a `source_type` value (new
+ * deterministic-rules path, e.g. `"apa_6"`). Key collision is structurally
+ * impossible: filename keys always end in `.txt`, `source_type` values
+ * never do. Exported (not `_test`-only) because it is real production
+ * logic exercised directly by `live-review-pipeline-resolver.test.mjs`.
+ */
+export async function resolveNormativeSourceId(repository, ref) {
 	if (!cachedNormativeSourceIds) {
-		cachedNormativeSourceIds = await repository.seedNormativeSources();
+		cachedNormativeSourceIds = {
+			...(await repository.seedNormativeSources()),
+			...(await repository.getNormativeSourceIdsBySourceType()),
+		};
 	}
 	return cachedNormativeSourceIds[ref] ?? null;
 }

@@ -234,9 +234,18 @@ export function createReviewOrchestrationProcessor({
 					insertedSections,
 					ruleFinding.page_number ?? null,
 				);
+				// thesis-normative-governance design.md D4: resolves the rule
+				// engine's declared `normative_source_type` (stamped by
+				// `run_rules()`, worker-side) to a real `normative_source.id` —
+				// replaces the previous hardcoded `null`. A finding whose type
+				// resolves to no row (defensive/unseeded-DB case) still
+				// persists with `normativeSourceId: null` rather than throwing.
+				const normativeSourceId = await resolveNormativeSourceId(
+					ruleFinding.normative_source_type,
+				);
 				await repository.persistFinding({
 					reviewRunId: reviewRunDbId,
-					normativeSourceId: null,
+					normativeSourceId,
 					finding: {
 						findingType: ruleFinding.finding_type,
 						severity: ruleFinding.severity,

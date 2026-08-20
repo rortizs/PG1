@@ -769,6 +769,221 @@ test("orchestrator falls back to full-corpus CAG without retrieved-context prove
 	assert.equal(persistedFinding.metadata?.rag_context, undefined);
 });
 
+test("orchestrator resolves a rule finding's normative_source_type to a real normativeSourceId — never the hardcoded null (thesis-normative-governance design.md D4, review-orchestrator.mjs:239)", async () => {
+	const { createReviewOrchestrationProcessor } = await import(
+		"../src/jobs/review-orchestrator.mjs"
+	);
+
+	const calls = [];
+	const resolvedRefs = [];
+	const repository = {
+		insertReviewRun: async () => 109,
+		updateReviewRunStatus: async () => {},
+		insertDocumentPages: async () => ({
+			ids: [227],
+			idByPageNumber: { 1: 227 },
+		}),
+		insertDocumentSections: async () => ({ ids: [], idByIndex: {} }),
+		persistFinding: async (args) => {
+			calls.push({ fn: "persistFinding", args });
+			return { findingId: 417, evidenceIds: [517] };
+		},
+	};
+	const lifecycle = { transitionReviewRun: () => {}, markJobFailed: () => {} };
+
+	const processor = createReviewOrchestrationProcessor({
+		repository,
+		lifecycle,
+		resolveThesisDocumentDbId: async () => 1,
+		extractThesisText: async () => ({
+			fullText: "Full extracted text.",
+			pages: [{ page_number: 1, section_title: null, text: "Page one." }],
+			sections: [],
+			content_type: "application/pdf",
+		}),
+		runRules: async () => ({
+			findings: [
+				{
+					finding_type: "writing_style",
+					severity: "low",
+					confidence: 0.9,
+					title: "Muletilla detectada",
+					explanation: "explanation",
+					recommendation: "recommendation",
+					evidence_text: "o sea",
+					page_number: 1,
+					rule_id: "filler_words.lexicon_match",
+					producer_type: "deterministic_rule",
+					producer_id: "rules@v1",
+					normative_source_type: "gt_guide",
+					metadata: { precedence_tier: 3 },
+				},
+			],
+		}),
+		runCagReview: async () => ({ finding: null }),
+		resolveNormativeSourceId: async (ref) => {
+			resolvedRefs.push(ref);
+			return ref === "gt_guide" ? 42 : null;
+		},
+	});
+
+	await processor({ review_run_id: "run_9", thesis_document_id: "doc_9" });
+
+	assert.deepEqual(resolvedRefs, ["gt_guide"]);
+	const persistCall = calls.find((c) => c.fn === "persistFinding");
+	assert.equal(persistCall.args.normativeSourceId, 42);
+});
+
+test("orchestrator persists normativeSourceId: null (never throws) when a rule finding's source type resolves to no row — defensive, unseeded-DB case", async () => {
+	const { createReviewOrchestrationProcessor } = await import(
+		"../src/jobs/review-orchestrator.mjs"
+	);
+
+	const calls = [];
+	const repository = {
+		insertReviewRun: async () => 110,
+		updateReviewRunStatus: async () => {},
+		insertDocumentPages: async () => ({
+			ids: [228],
+			idByPageNumber: { 1: 228 },
+		}),
+		insertDocumentSections: async () => ({ ids: [], idByIndex: {} }),
+		persistFinding: async (args) => {
+			calls.push({ fn: "persistFinding", args });
+			return { findingId: 418, evidenceIds: [518] };
+		},
+	};
+	const lifecycle = { transitionReviewRun: () => {}, markJobFailed: () => {} };
+
+	const processor = createReviewOrchestrationProcessor({
+		repository,
+		lifecycle,
+		resolveThesisDocumentDbId: async () => 1,
+		extractThesisText: async () => ({
+			fullText: "Full extracted text.",
+			pages: [{ page_number: 1, section_title: null, text: "Page one." }],
+			sections: [],
+			content_type: "application/pdf",
+		}),
+		runRules: async () => ({
+			findings: [
+				{
+					finding_type: "writing_style",
+					severity: "low",
+					confidence: 0.9,
+					title: "Muletilla detectada",
+					explanation: "explanation",
+					recommendation: "recommendation",
+					evidence_text: "o sea",
+					page_number: 1,
+					rule_id: "filler_words.lexicon_match",
+					producer_type: "deterministic_rule",
+					producer_id: "rules@v1",
+					normative_source_type: "gt_guide",
+					metadata: {},
+				},
+			],
+		}),
+		runCagReview: async () => ({ finding: null }),
+		resolveNormativeSourceId: async () => null,
+	});
+
+	await processor({ review_run_id: "run_10", thesis_document_id: "doc_10" });
+
+	const persistCall = calls.find((c) => c.fn === "persistFinding");
+	assert.equal(persistCall.args.normativeSourceId, null);
+});
+
+test("approval-gate isolation call-path proof (D9): a rules-persistence run never calls any repository method matching /workflow|approval|approve/i", async () => {
+	const { createReviewOrchestrationProcessor } = await import(
+		"../src/jobs/review-orchestrator.mjs"
+	);
+
+	const APPROVAL_GATE_METHOD_PATTERN = /workflow|approval|approve/i;
+	const calls = [];
+	const baseRepository = {
+		insertReviewRun: async () => 111,
+		updateReviewRunStatus: async () => {},
+		insertDocumentPages: async () => ({
+			ids: [229],
+			idByPageNumber: { 1: 229 },
+		}),
+		insertDocumentSections: async () => ({ ids: [], idByIndex: {} }),
+		persistFinding: async (args) => {
+			calls.push({ fn: "persistFinding", args });
+			return { findingId: 419, evidenceIds: [519] };
+		},
+	};
+
+	// TRIANGULATE (design.md D9): the trap also fires for case-insensitive
+	// variants, not only an exact-name match — proven by the pattern itself
+	// matching every one of these decoy names.
+	for (const decoyName of [
+		"approveWorkflowItem",
+		"getApprovalState",
+		"updateWorkflowApprovalState",
+	]) {
+		assert.match(decoyName, APPROVAL_GATE_METHOD_PATTERN);
+	}
+
+	const repositoryProxy = new Proxy(baseRepository, {
+		get(target, prop, receiver) {
+			if (
+				typeof prop === "string" &&
+				APPROVAL_GATE_METHOD_PATTERN.test(prop) &&
+				!(prop in target)
+			) {
+				throw new Error(
+					`blocked workflow call: repository.${prop} must never be called by the rules-persistence path (design.md D9)`,
+				);
+			}
+			return Reflect.get(target, prop, receiver);
+		},
+	});
+
+	const lifecycle = { transitionReviewRun: () => {}, markJobFailed: () => {} };
+
+	const processor = createReviewOrchestrationProcessor({
+		repository: repositoryProxy,
+		lifecycle,
+		resolveThesisDocumentDbId: async () => 1,
+		extractThesisText: async () => ({
+			fullText: "Full extracted text.",
+			pages: [{ page_number: 1, section_title: null, text: "Page one." }],
+			sections: [],
+			content_type: "application/pdf",
+		}),
+		runRules: async () => ({
+			findings: [
+				{
+					finding_type: "writing_style",
+					severity: "low",
+					confidence: 0.9,
+					title: "Muletilla detectada",
+					explanation: "explanation",
+					recommendation: "recommendation",
+					evidence_text: "o sea",
+					page_number: 1,
+					rule_id: "filler_words.lexicon_match",
+					producer_type: "deterministic_rule",
+					producer_id: "rules@v1",
+					normative_source_type: "gt_guide",
+					metadata: {},
+				},
+			],
+		}),
+		runCagReview: async () => ({ finding: null }),
+		resolveNormativeSourceId: async () => null,
+	});
+
+	// Runs the REAL rules-persistence path to completion, through the proxy
+	// trap, and must never trip it.
+	await processor({ review_run_id: "run_11", thesis_document_id: "doc_11" });
+
+	const persistCalls = calls.filter((c) => c.fn === "persistFinding");
+	assert.equal(persistCalls.length, 1);
+});
+
 test("defaultRunCagReview forwards provider_name/api_key/model_id to the worker when supplied, and omits them entirely when not (backward compatible)", async () => {
 	const worker = await startFakeWorker();
 	const previousWorkerBaseUrl = process.env.WORKER_BASE_URL;

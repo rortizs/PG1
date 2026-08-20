@@ -10,6 +10,9 @@ from .base import RuleFinding
 
 CONFIDENCE = 0.90
 RULE_ID = "filler_words.lexicon_match"
+# thesis-normative-governance design.md D3: writing-style guidance is
+# grounded in the Facultad "Guía para Trabajo de Graduación" (tier 3).
+NORMATIVE_SOURCE_TYPE = "gt_guide"
 
 # Conservative, common Spanish academic-writing muletillas — false-positive
 # averse: every entry is a multi-word phrase or an unambiguous discourse

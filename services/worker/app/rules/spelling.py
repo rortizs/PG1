@@ -19,6 +19,9 @@ from .base import RuleFinding
 CONFIDENCE = 0.75
 RULE_ID = "spelling.dictionary_miss"
 MIN_TOKEN_LENGTH = 4
+# thesis-normative-governance design.md D3: writing-style guidance is
+# grounded in the Facultad "Guía para Trabajo de Graduación" (tier 3).
+NORMATIVE_SOURCE_TYPE = "gt_guide"
 CONTEXT_RADIUS = 30
 
 _TOKEN_PATTERN = re.compile(r"[A-Za-zÁÉÍÓÚÑÜáéíóúñü]+")

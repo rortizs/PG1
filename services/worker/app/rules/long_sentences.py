@@ -9,6 +9,9 @@ from .segmentation import sentences
 WORD_THRESHOLD = 40
 CONFIDENCE = 0.85
 RULE_ID = "long_sentences.word_count_threshold"
+# thesis-normative-governance design.md D3: writing-style guidance is
+# grounded in the Facultad "Guía para Trabajo de Graduación" (tier 3).
+NORMATIVE_SOURCE_TYPE = "gt_guide"
 
 
 def check(pages: list[dict], sections: list[dict] | None = None) -> list[RuleFinding]:

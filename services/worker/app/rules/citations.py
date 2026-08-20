@@ -12,6 +12,15 @@ from .base import RuleFinding, fold
 CONFIDENCE = 0.80
 UNCITED_REFERENCE_RULE_ID = "citations.uncited_reference_missing"
 UNUSED_REFERENCE_RULE_ID = "citations.unused_reference_entry"
+# thesis-normative-governance design.md D3: citation rules are grounded in
+# the APA 6 manual (tier 2). Declared here (PR1, "governance spine") ahead
+# of the PR2 APA-6 rule additions (et-al./quote-length checks, design.md
+# D6) because `run_rules()`'s stamping loop (D3) reads this constant via
+# unconditional `getattr()` on EVERY currently-registered module, including
+# this one — omitting it would raise AttributeError on every `run_rules()`
+# call and break the existing citation cross-check, not just gate future
+# rules.
+NORMATIVE_SOURCE_TYPE = "apa_6"
 
 _AUTHOR_TOKEN = r"[A-ZÁÉÍÓÚÑ][\w'-]+"
 _IN_TEXT_CITATION_PATTERN = re.compile(

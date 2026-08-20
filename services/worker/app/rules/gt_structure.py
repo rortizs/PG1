@@ -11,6 +11,9 @@ from .base import RuleFinding, fold
 
 CONFIDENCE = 0.85
 RULE_ID = "gt_structure.missing_required_section"
+# thesis-normative-governance design.md D3: this module is grounded in the
+# Facultad "Guía para Trabajo de Graduación" corpus files (tier 3).
+NORMATIVE_SOURCE_TYPE = "gt_guide"
 
 # Each tuple is a group of acceptable synonyms for one required GT section —
 # any one of them being present satisfies that requirement (e.g.

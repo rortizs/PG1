@@ -20,7 +20,7 @@ from app.rules import (
     segmentation,
     spelling,
 )
-from app.rules.base import RuleFinding
+from app.rules.base import RuleFinding, SOURCE_PRECEDENCE
 
 
 def _page(page_number, text):
@@ -177,6 +177,15 @@ class ConfidenceThresholdTest(unittest.TestCase):
         import app.rules as rules_module
 
         class FakeModule:
+            # thesis-normative-governance design.md D3: run_rules() now
+            # reads this constant via getattr() BEFORE filtering by
+            # confidence, so any fixture module exercised by run_rules()
+            # must declare it (a real, currently-registered source type) or
+            # it fails on the unrelated AttributeError this test is not
+            # about — see `NormativeSourceStampingTest` below for the
+            # dedicated missing-constant coverage.
+            NORMATIVE_SOURCE_TYPE = "gt_guide"
+
             @staticmethod
             def check(pages, sections):
                 return [
@@ -218,6 +227,102 @@ class RunRulesTest(unittest.TestCase):
 
     def test_empty_pages_never_crashes(self):
         self.assertEqual(run_rules([], []), [])
+
+
+class NormativeSourceStampingTest(unittest.TestCase):
+    """thesis-normative-governance design.md D3: `run_rules()` is the single
+    choke point that stamps `normative_source_type`/`metadata.precedence_tier`
+    onto every finding, reading each module's declared
+    `NORMATIVE_SOURCE_TYPE` constant. Before this pass, nothing stamps the
+    field (`None`, today's real pre-change behavior) and a fixture module
+    lacking the constant has nothing to raise at all — this is the loud,
+    not-silent-`None` behavior design.md D3 specifically calls for."""
+
+    def test_a_filler_words_finding_is_stamped_gt_guide_tier_three(self):
+        pages = [_page(1, "Es decir que el sistema, o sea, funciona bien.")]
+        findings = run_rules(pages, [])
+        filler_finding = next(
+            f for f in findings if f.rule_id == "filler_words.lexicon_match"
+        )
+        self.assertEqual(filler_finding.normative_source_type, "gt_guide")
+        self.assertEqual(filler_finding.metadata.get("precedence_tier"), 3)
+
+    def test_every_registered_module_declares_normative_source_type(self):
+        import app.rules as rules_module
+
+        for module in rules_module._RULE_MODULES:
+            self.assertTrue(
+                hasattr(module, "NORMATIVE_SOURCE_TYPE"),
+                f"{module} is registered in _RULE_MODULES but declares no "
+                "NORMATIVE_SOURCE_TYPE constant",
+            )
+            self.assertIn(
+                module.NORMATIVE_SOURCE_TYPE,
+                SOURCE_PRECEDENCE,
+                f"{module}.NORMATIVE_SOURCE_TYPE is not a recognized tier",
+            )
+
+    def test_a_module_missing_the_constant_raises_loudly_not_silently(self):
+        import app.rules as rules_module
+
+        class FakeModuleMissingConstant:
+            @staticmethod
+            def check(pages, sections):
+                return [
+                    RuleFinding(
+                        finding_type="writing_style",
+                        severity="low",
+                        confidence=0.9,
+                        title="whatever",
+                        explanation="whatever",
+                        recommendation="whatever",
+                        evidence_text="whatever",
+                        page_number=1,
+                        section_index=None,
+                        rule_id="fake.no_source_type",
+                        metadata={},
+                    )
+                ]
+
+        original_modules = rules_module._RULE_MODULES
+        rules_module._RULE_MODULES = (FakeModuleMissingConstant(),)
+        try:
+            with self.assertRaises(AttributeError):
+                run_rules([_page(1, "text")], [])
+        finally:
+            rules_module._RULE_MODULES = original_modules
+
+    def test_a_module_with_an_unrecognized_source_type_raises_key_error(self):
+        import app.rules as rules_module
+
+        class FakeModuleUnknownSourceType:
+            NORMATIVE_SOURCE_TYPE = "not_a_real_source_type"
+
+            @staticmethod
+            def check(pages, sections):
+                return [
+                    RuleFinding(
+                        finding_type="writing_style",
+                        severity="low",
+                        confidence=0.9,
+                        title="whatever",
+                        explanation="whatever",
+                        recommendation="whatever",
+                        evidence_text="whatever",
+                        page_number=1,
+                        section_index=None,
+                        rule_id="fake.unknown_source_type",
+                        metadata={},
+                    )
+                ]
+
+        original_modules = rules_module._RULE_MODULES
+        rules_module._RULE_MODULES = (FakeModuleUnknownSourceType(),)
+        try:
+            with self.assertRaises(KeyError):
+                run_rules([_page(1, "text")], [])
+        finally:
+            rules_module._RULE_MODULES = original_modules
 
 
 if __name__ == "__main__":

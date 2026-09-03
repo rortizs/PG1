@@ -37,6 +37,36 @@ type UploadStatus = 'idle' | 'submitting' | 'error';
       <p role="alert">{{ message }}</p>
     }
   `,
+  styles: [`
+    :host {
+      display: block;
+      max-width: 640px;
+      margin: 0 auto;
+      padding: var(--pg1-page-margin) var(--pg1-space-gutter);
+    }
+
+    h1 {
+      margin-bottom: var(--pg1-space-gutter);
+    }
+
+    form {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: var(--pg1-node-gap);
+      padding: var(--pg1-container-padding);
+      border: var(--pg1-border-structural);
+      background: var(--pg1-color-surface-container-low);
+    }
+
+    input[type='file'] {
+      width: 100%;
+    }
+
+    [role='alert'] {
+      margin-top: var(--pg1-node-gap);
+    }
+  `],
 })
 export class UploadPage {
   private readonly api = inject(ThesisApiClient);

@@ -68,9 +68,9 @@ const SUPPORTED_PROVIDER_NAMES = ['claude', 'deepseek', 'groq'] as const;
                 <td>{{ maskKey(row) }}</td>
                 <td>
                   @if (row.is_active) {
-                    <span role="status">active</span>
+                    <span role="status" class="status-active">active</span>
                   } @else {
-                    <span role="status">inactive</span>
+                    <span role="status" class="status-inactive">inactive</span>
                   }
                 </td>
                 <td>
@@ -138,6 +138,125 @@ const SUPPORTED_PROVIDER_NAMES = ['claude', 'deepseek', 'groq'] as const;
       <p role="alert">{{ message }}</p>
     }
   `,
+  styles: [`
+    :host {
+      display: block;
+      max-width: 880px;
+      margin: 0 auto;
+      padding: var(--pg1-page-margin) var(--pg1-space-gutter);
+    }
+
+    h1 {
+      margin-bottom: var(--pg1-node-gap);
+    }
+
+    h2 {
+      margin-top: var(--pg1-space-gutter);
+      margin-bottom: var(--pg1-node-gap);
+    }
+
+    p[role='note'] {
+      font-family: var(--pg1-font-mono);
+      font-size: var(--pg1-label-mono-sm-size);
+      letter-spacing: var(--pg1-label-mono-sm-tracking);
+      color: var(--pg1-color-academic-blue);
+      border-left: 1px solid var(--pg1-color-academic-blue);
+      padding: calc(var(--pg1-space-unit) * 2) var(--pg1-node-gap);
+      margin-bottom: var(--pg1-space-gutter);
+    }
+
+    p[role='alert'] {
+      margin-bottom: var(--pg1-space-gutter);
+    }
+
+    table {
+      margin-bottom: var(--pg1-space-gutter);
+    }
+
+    /* Status is rendered as literal text with no distinguishing attribute
+       in the template, so a minimal presentational class is unavoidable
+       to tell active/inactive apart visually. */
+    .status-active,
+    .status-inactive {
+      display: inline-block;
+      font-family: var(--pg1-font-mono);
+      font-size: var(--pg1-label-mono-sm-size);
+      letter-spacing: var(--pg1-label-mono-sm-tracking);
+      text-transform: uppercase;
+      padding: calc(var(--pg1-space-unit) * 1) calc(var(--pg1-space-unit) * 2);
+      border: 1px solid currentColor;
+    }
+
+    .status-active {
+      color: var(--pg1-color-academic-blue);
+    }
+
+    .status-inactive {
+      color: var(--pg1-color-outline);
+    }
+
+    /* Edit is the 5th table column, Activate the 6th — targeted
+       structurally so Edit reads as a secondary (outline) action and
+       Activate as the row's primary action, without adding a class. */
+    td:nth-child(5) button {
+      background: transparent;
+      color: var(--pg1-color-ink);
+      border: 1px solid var(--pg1-color-ink);
+    }
+
+    td:nth-child(5) button:hover {
+      background: var(--pg1-ink-wash-05);
+    }
+
+    td:nth-child(6) button {
+      background: var(--pg1-color-ink);
+      color: var(--pg1-color-on-primary);
+      border: 1.5px solid var(--pg1-color-ink);
+    }
+
+    td:nth-child(6) button:hover:not(:disabled) {
+      background: var(--pg1-color-academic-blue);
+      border-color: var(--pg1-color-academic-blue);
+    }
+
+    form {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: var(--pg1-node-gap);
+      padding: var(--pg1-container-padding);
+      border: var(--pg1-border-structural);
+      background: var(--pg1-color-surface-container-low);
+    }
+
+    form label {
+      width: 100%;
+      max-width: 360px;
+      display: flex;
+      flex-direction: column;
+      gap: calc(var(--pg1-space-unit) * 2);
+    }
+
+    form select,
+    form input {
+      width: 100%;
+    }
+
+    form small {
+      margin-top: calc(var(--pg1-space-unit) * 1);
+    }
+
+    /* The lone type="button" inside the form is Cancel: secondary action. */
+    form button[type='button'] {
+      background: transparent;
+      color: var(--pg1-color-ink);
+      border: 1px solid var(--pg1-color-ink);
+    }
+
+    form button[type='button']:hover {
+      background: var(--pg1-ink-wash-05);
+    }
+  `],
 })
 export class AdminProvidersPage {
   private readonly api = inject(AdminApiClient);

@@ -169,6 +169,123 @@ const DEFAULT_DEMO_FALLBACK_STUDENT_REVIEW: DemoFallbackStudentReview = {
       </section>
     </main>
   `,
+	styles: [`
+    :host {
+      display: block;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: var(--pg1-page-margin) var(--pg1-space-gutter);
+    }
+
+    main > a {
+      display: inline-block;
+      font-family: var(--pg1-font-mono);
+      font-size: var(--pg1-label-mono-size);
+      margin-bottom: var(--pg1-node-gap);
+    }
+
+    main > p {
+      font-family: var(--pg1-font-mono);
+      font-size: var(--pg1-label-mono-sm-size);
+      letter-spacing: var(--pg1-label-mono-sm-tracking);
+      color: var(--pg1-color-outline);
+      text-transform: uppercase;
+      margin-bottom: var(--pg1-space-gutter);
+    }
+
+    header {
+      margin-bottom: var(--pg1-space-gutter);
+      padding-bottom: var(--pg1-space-gutter);
+      border-bottom: var(--pg1-border-structural);
+    }
+
+    header h1 {
+      margin-bottom: calc(var(--pg1-space-unit) * 2);
+    }
+
+    header p:nth-of-type(1) {
+      font-style: italic;
+      color: var(--pg1-color-outline);
+      margin-bottom: var(--pg1-node-gap);
+    }
+
+    header p:nth-of-type(2),
+    header p:nth-of-type(3),
+    header p:nth-of-type(4) {
+      display: inline-block;
+      font-family: var(--pg1-font-mono);
+      font-size: var(--pg1-label-mono-size);
+      color: var(--pg1-color-ink);
+      margin-right: var(--pg1-node-gap);
+      margin-bottom: calc(var(--pg1-space-unit) * 2);
+    }
+
+    header p:nth-of-type(5) {
+      font-family: var(--pg1-font-mono);
+      font-size: var(--pg1-label-mono-sm-size);
+      letter-spacing: var(--pg1-label-mono-sm-tracking);
+      color: var(--pg1-color-outline);
+      margin-top: var(--pg1-node-gap);
+      margin-bottom: 0;
+    }
+
+    section {
+      margin-bottom: var(--pg1-space-gutter);
+      padding: var(--pg1-container-padding);
+      border: var(--pg1-border-hairline);
+    }
+
+    section h2 {
+      margin-bottom: var(--pg1-node-gap);
+    }
+
+    section[aria-labelledby='upload-title'] {
+      border: var(--pg1-border-current);
+      background: var(--pg1-color-surface-container-low);
+    }
+
+    section[aria-labelledby='upload-title']:hover,
+    section[aria-labelledby='upload-title']:focus-within {
+      background: var(--pg1-ink-wash-05);
+    }
+
+    section form {
+      display: flex;
+      align-items: center;
+      gap: var(--pg1-node-gap);
+      flex-wrap: wrap;
+      margin-top: var(--pg1-node-gap);
+    }
+
+    section p {
+      margin-bottom: var(--pg1-space-unit);
+    }
+
+    section [role='alert'] {
+      margin-top: var(--pg1-node-gap);
+    }
+
+    section button[type='button'] {
+      margin-top: var(--pg1-node-gap);
+    }
+
+    ul {
+      display: flex;
+      flex-direction: column;
+      gap: calc(var(--pg1-space-unit) * 2);
+    }
+
+    li {
+      font-family: var(--pg1-font-mono);
+      font-size: var(--pg1-label-mono-size);
+      padding: calc(var(--pg1-space-unit) * 2) 0;
+      border-bottom: var(--pg1-border-hairline);
+    }
+
+    li:last-child {
+      border-bottom: none;
+    }
+  `],
 })
 export class StudentReviewPage {
 	private readonly route = inject(ActivatedRoute);

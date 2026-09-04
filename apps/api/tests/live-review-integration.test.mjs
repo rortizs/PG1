@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
+import { createAuthenticatedSession } from "./support/reviewer-session-fixture.mjs";
 
 const DEFAULT_LOCAL_DATABASE_URL = "postgres://pg1:pg1@localhost:5432/pg1";
 const databaseUrl = process.env.DATABASE_URL ?? DEFAULT_LOCAL_DATABASE_URL;
@@ -163,6 +164,11 @@ test("live HTTP review-run route drives the real pipeline end to end for genuine
 	});
 	await providerRepository.activate(seededProvider.id);
 
+	// reviewer-authentication PR3a: every `handleApiRequest` call below now
+	// sits behind the deny-by-default session gate.
+	const session = await createAuthenticatedSession({ connectionString: databaseUrl });
+	const authHeaders = session.headers;
+
 	try {
 		// --- Scenario 1: grounded finding -> completed, exactly one persisted finding ---
 		worker.setNextReview(200, {
@@ -183,6 +189,7 @@ test("live HTTP review-run route drives the real pipeline end to end for genuine
 		});
 
 		const uploadRes = await handleApiRequest({
+			headers: authHeaders,
 			method: "POST",
 			path: "/api/v1/thesis-documents",
 			body: {
@@ -199,6 +206,7 @@ test("live HTTP review-run route drives the real pipeline end to end for genuine
 		const documentId = uploadRes.body.id;
 
 		const runRes = await handleApiRequest({
+			headers: authHeaders,
 			method: "POST",
 			path: `/api/v1/thesis-documents/${documentId}/review-runs`,
 			body: {},
@@ -211,6 +219,7 @@ test("live HTTP review-run route drives the real pipeline end to end for genuine
 		const runId = runRes.body.id;
 
 		const statusRes = await handleApiRequest({
+			headers: authHeaders,
 			method: "GET",
 			path: `/api/v1/review-runs/${runId}`,
 		});
@@ -242,6 +251,7 @@ test("live HTTP review-run route drives the real pipeline end to end for genuine
 		);
 		await provenanceClient.end();
 		const statusResAfterNulling = await handleApiRequest({
+			headers: authHeaders,
 			method: "GET",
 			path: `/api/v1/review-runs/${runId}`,
 		});
@@ -251,6 +261,7 @@ test("live HTTP review-run route drives the real pipeline end to end for genuine
 		assert.equal(statusResAfterNulling.body.llm_model_id, null);
 
 		const findingsRes = await handleApiRequest({
+			headers: authHeaders,
 			method: "GET",
 			path: `/api/v1/review-runs/${runId}/findings`,
 		});
@@ -263,6 +274,7 @@ test("live HTTP review-run route drives the real pipeline end to end for genuine
 		);
 
 		const reportRes = await handleApiRequest({
+			headers: authHeaders,
 			method: "GET",
 			path: `/api/v1/review-runs/${runId}/report-artifacts`,
 		});
@@ -282,6 +294,7 @@ test("live HTTP review-run route drives the real pipeline end to end for genuine
 		assert.match(reportRes.body.items[0].content, /Missing APA citation/);
 
 		const boardRes = await handleApiRequest({
+			headers: authHeaders,
 			method: "GET",
 			path: "/api/v1/review-board/cards",
 		});
@@ -296,6 +309,7 @@ test("live HTTP review-run route drives the real pipeline end to end for genuine
 		assert.equal(boardCard.report_ready, true);
 
 		const priorityRes = await handleApiRequest({
+			headers: authHeaders,
 			method: "PATCH",
 			path: `/api/v1/review-board/cards/${boardCard.id}/priority`,
 			body: { priority: "urgent" },
@@ -304,14 +318,20 @@ test("live HTTP review-run route drives the real pipeline end to end for genuine
 		assert.equal(priorityRes.body.priority, "urgent");
 		assert.equal(priorityRes.body.review_run_status, "completed");
 
+		// reviewer-authentication Unit 4 (design.md D8): approval identity now
+		// comes exclusively from the authenticated session, never the request
+		// body — `reviewerName: "Dr. Hopper"` below is a deliberately forged
+		// body field that must be ignored; the real assertion is against the
+		// session's own `displayName`.
 		const approvalRes = await handleApiRequest({
+			headers: authHeaders,
 			method: "POST",
 			path: `/api/v1/review-board/cards/${boardCard.id}/approval`,
 			body: { reviewerName: "Dr. Hopper" },
 		});
 		assert.equal(approvalRes.status, 200);
 		assert.equal(approvalRes.body.board_state, "approved");
-		assert.equal(approvalRes.body.reviewer_label, "Dr. Hopper");
+		assert.equal(approvalRes.body.reviewer_label, session.displayName);
 		assert.match(reportRes.body.items[0].content, /Page 1/);
 		assert.match(
 			reportRes.body.items[0].content,
@@ -367,11 +387,13 @@ test("live HTTP review-run route drives the real pipeline end to end for genuine
 		worker.setNextReview(200, { finding: null });
 
 		const uploadRes2 = await handleApiRequest({
+			headers: authHeaders,
 			method: "POST",
 			path: "/api/v1/thesis-documents",
 			body: { files: [pdfFile("ungrounded.pdf")], uploaderUserId: 1 },
 		});
 		const runRes2 = await handleApiRequest({
+			headers: authHeaders,
 			method: "POST",
 			path: `/api/v1/thesis-documents/${uploadRes2.body.id}/review-runs`,
 			body: {},
@@ -379,6 +401,7 @@ test("live HTTP review-run route drives the real pipeline end to end for genuine
 		assert.equal(runRes2.body.status, "completed");
 
 		const findingsRes2 = await handleApiRequest({
+			headers: authHeaders,
 			method: "GET",
 			path: `/api/v1/review-runs/${runRes2.body.id}/findings`,
 		});
@@ -400,11 +423,13 @@ test("live HTTP review-run route drives the real pipeline end to end for genuine
 		worker.setNextRules(500, { detail: "rules engine crashed" });
 
 		const uploadRes3 = await handleApiRequest({
+			headers: authHeaders,
 			method: "POST",
 			path: "/api/v1/thesis-documents",
 			body: { files: [pdfFile("failure.pdf")], uploaderUserId: 1 },
 		});
 		const runRes3 = await handleApiRequest({
+			headers: authHeaders,
 			method: "POST",
 			path: `/api/v1/thesis-documents/${uploadRes3.body.id}/review-runs`,
 			body: {},
@@ -413,12 +438,14 @@ test("live HTTP review-run route drives the real pipeline end to end for genuine
 		assert.match(runRes3.body.error_summary, /configuration_error/);
 
 		const findingsRes3 = await handleApiRequest({
+			headers: authHeaders,
 			method: "GET",
 			path: `/api/v1/review-runs/${runRes3.body.id}/findings`,
 		});
 		assert.equal(findingsRes3.body.items.length, 0);
 
 		const failedBoardRes = await handleApiRequest({
+			headers: authHeaders,
 			method: "GET",
 			path: "/api/v1/review-board/cards",
 		});
@@ -462,11 +489,13 @@ test("live HTTP review-run route drives the real pipeline end to end for genuine
 		});
 
 		const uploadRes4 = await handleApiRequest({
+			headers: authHeaders,
 			method: "POST",
 			path: "/api/v1/thesis-documents",
 			body: { files: [pdfFile("partial-failure.pdf")], uploaderUserId: 1 },
 		});
 		const runRes4 = await handleApiRequest({
+			headers: authHeaders,
 			method: "POST",
 			path: `/api/v1/thesis-documents/${uploadRes4.body.id}/review-runs`,
 			body: {},
@@ -478,6 +507,7 @@ test("live HTTP review-run route drives the real pipeline end to end for genuine
 		);
 
 		const findingsRes4 = await handleApiRequest({
+			headers: authHeaders,
 			method: "GET",
 			path: `/api/v1/review-runs/${runRes4.body.id}/findings`,
 		});
@@ -522,6 +552,7 @@ test("live HTTP review-run route drives the real pipeline end to end for genuine
 		// contract.test.mjs's protected assertion — proving the real-pipeline
 		// wiring above did not change behavior for unknown documents. ---
 		const stubRunRes = await handleApiRequest({
+			headers: authHeaders,
 			method: "POST",
 			path: "/api/v1/thesis-documents/doc_never_uploaded/review-runs",
 			body: { pipelineVersion: "pipeline-live-test" },

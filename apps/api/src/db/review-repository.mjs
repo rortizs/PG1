@@ -573,14 +573,21 @@ export function createReviewRepository({ client, connectionString } = {}) {
 			});
 		},
 
-		async approveReviewBoardCard(boardCardId, { reviewerName = null } = {}) {
+		/**
+		 * reviewer-authentication design.md D8 (Unit 4): `reviewerId` and
+		 * `reviewerName` now come from the caller's authenticated session, never
+		 * a client-supplied body field. `COALESCE`'s "keep the old value" branch
+		 * is dead once a session is mandatory — both columns are written
+		 * unconditionally.
+		 */
+		async approveReviewBoardCard(boardCardId, { reviewerId = null, reviewerName = null } = {}) {
 			return run(async (pgClient) => {
 				// pi-lens-ignore: ast-grep:no-sql-in-code-js
 				await pgClient.query(
 					`UPDATE review_workflow_item
-					 SET approval_state = 'approved', reviewer_name = COALESCE($2, reviewer_name), updated_at = now()
+					 SET approval_state = 'approved', reviewer_name = $2, approved_by_reviewer_id = $3, updated_at = now()
 					 WHERE id = $1`,
-					[toIdFromPublicBoardCardId(boardCardId), reviewerName],
+					[toIdFromPublicBoardCardId(boardCardId), reviewerName, reviewerId],
 				);
 				return readReviewBoardCardById(pgClient, boardCardId);
 			});
@@ -818,6 +825,35 @@ export function createReviewRepository({ client, connectionString } = {}) {
 		 * `/review-runs/{id}/findings` path — never returns fabricated data,
 		 * only rows genuinely written by `persistFinding`.
 		 */
+		/**
+		 * reviewer-authentication design.md D8: the sole writer for
+		 * `audit_event` (previously zero writers existed anywhere in
+		 * `apps/api/src`). Scoped to exactly five events:
+		 * `login_succeeded`, `login_failed`, `logout`, `card_approved`,
+		 * `thesis_uploaded`. Callers wrap every call in `try/catch`
+		 * (`auth-contract.mjs`'s `safeInsertAuditEvent`) so an audit-write
+		 * failure never converts a successful request into an error
+		 * response.
+		 */
+		async insertAuditEvent({
+			actorUserId = null,
+			entityType,
+			entityId = null,
+			eventType,
+			message = null,
+			metadata = {},
+		}) {
+			return run(async (pgClient) => {
+				// pi-lens-ignore: ast-grep:no-sql-in-code-js
+				await pgClient.query(
+					`INSERT INTO audit_event
+					   (actor_user_id, entity_type, entity_id, event_type, message, metadata)
+					 VALUES ($1,$2,$3,$4,$5,$6)`,
+					[actorUserId, entityType, entityId, eventType, message, JSON.stringify(metadata)],
+				);
+			});
+		},
+
 		async listFindingsForReviewRun(reviewRunId) {
 			return run(async (pgClient) => {
 				// pi-lens-ignore: ast-grep:no-sql-in-code-js

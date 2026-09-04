@@ -249,9 +249,15 @@ export function getDocumentStorage() {
  * behaving exactly as before this pass, and every review-run trigger for
  * that document falls back to the existing in-memory stub lifecycle.
  *
- * `uploaderUserId` defaults to `0` (no auth in this MVP; the schema's
- * `uploaded_by_user_id` column is `NOT NULL`) — `0` is a documented
- * placeholder for "no authenticated uploader", not a real user id.
+ * reviewer-authentication design.md D8 (Unit 4): `uploaderUserId` is now
+ * REQUIRED — the caller (`api-contract.mjs`'s upload handler) always has a
+ * real session-derived reviewer id by the time it calls this function,
+ * since the route sits behind the deny-by-default session gate. A null/
+ * undefined `uploaderUserId` reaching this point throws loudly instead of
+ * silently falling back to `0` (the old placeholder for "no authenticated
+ * uploader"); this throw path should only ever fire on an upstream
+ * regression, which is exactly the point — a loud signal instead of a
+ * silent bad default.
  */
 // Postgres connection-level error codes: these mean the database is
 // genuinely unreachable, matching spec's "Postgres unreachable -> 5xx"
@@ -283,6 +289,12 @@ export async function registerUploadedDocument({
 	uploaderUserId,
 	metadata = {},
 }) {
+	if (uploaderUserId === null || uploaderUserId === undefined) {
+		throw new Error(
+			"registerUploadedDocument: uploaderUserId is required — a null/undefined uploaderUserId must never silently default to 0 (reviewer-authentication design.md D8).",
+		);
+	}
+
 	const repository = getRepository();
 	if (!repository) return { persisted: false };
 
@@ -293,7 +305,7 @@ export async function registerUploadedDocument({
 			fileSizeBytes,
 			storageKey,
 			sha256,
-			uploadedByUserId: uploaderUserId ?? 0,
+			uploadedByUserId: uploaderUserId,
 			metadata,
 		});
 		uploadedDocuments.set(documentId, {

@@ -1,16 +1,19 @@
 import {
   Controller,
   Get,
+  Headers,
   Param,
   Post,
   Query,
   Req,
   Res,
   UploadedFiles,
+  UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
 import { FilesInterceptor } from '@nestjs/platform-express';
 import { handleApiRequest } from '../api-contract.mjs';
+import { SessionGuard } from '../auth/session.guard.js';
 import type { HttpRequest, HttpResponse } from '../http-types.js';
 
 /** Minimal structural shape of the multer in-memory file this route needs. */
@@ -21,6 +24,11 @@ interface UploadedMulterFile {
   size: number;
 }
 
+/** Minimal structural shape of the headers this controller needs. */
+interface RequestWithHeaders {
+  headers: Record<string, string | string[] | undefined>;
+}
+
 /**
  * Real NestJS controller for thesis-document routes.
  *
@@ -29,6 +37,7 @@ interface UploadedMulterFile {
  * re-implemented here.
  */
 @Controller('api/v1/thesis-documents')
+@UseGuards(SessionGuard)
 export class ThesisDocumentsController {
   readonly routes = [
     'POST /api/v1/thesis-documents',
@@ -40,6 +49,7 @@ export class ThesisDocumentsController {
   @UseInterceptors(FilesInterceptor('file'))
   async create(
     @UploadedFiles() files: UploadedMulterFile[] = [],
+    @Headers() headers: RequestWithHeaders['headers'],
     @Res() res: HttpResponse,
   ) {
     // Always pass a real `files` array (possibly empty) so zero-file and
@@ -59,16 +69,22 @@ export class ThesisDocumentsController {
       method: 'POST',
       path: '/api/v1/thesis-documents',
       body,
+      headers,
     });
     res.status(result.status).json(result.body);
   }
 
   @Get()
-  async list(@Query() query: Record<string, string>, @Res() res: HttpResponse) {
+  async list(
+    @Query() query: Record<string, string>,
+    @Headers() headers: RequestWithHeaders['headers'],
+    @Res() res: HttpResponse,
+  ) {
     const result = await handleApiRequest({
       method: 'GET',
       path: '/api/v1/thesis-documents',
       query,
+      headers,
     });
     res.status(result.status).json(result.body);
   }
@@ -77,12 +93,14 @@ export class ThesisDocumentsController {
   async createReviewRun(
     @Param('documentId') documentId: string,
     @Req() req: HttpRequest,
+    @Headers() headers: RequestWithHeaders['headers'],
     @Res() res: HttpResponse,
   ) {
     const result = await handleApiRequest({
       method: 'POST',
       path: `/api/v1/thesis-documents/${encodeURIComponent(documentId)}/review-runs`,
       body: req.body ?? {},
+      headers,
     });
     res.status(result.status).json(result.body);
   }

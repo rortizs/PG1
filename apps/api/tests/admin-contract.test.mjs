@@ -5,7 +5,6 @@ const DEFAULT_LOCAL_DATABASE_URL = "postgres://pg1:pg1@localhost:5432/pg1";
 const databaseUrl = process.env.DATABASE_URL ?? DEFAULT_LOCAL_DATABASE_URL;
 
 const VALID_ENCRYPTION_KEY = "b".repeat(64); // 64 hex chars = 32 bytes
-const ADMIN_SECRET = "test-admin-shared-secret";
 
 const STANDARD_ERROR_KEYS = ["error", "message", "details", "request_id", "timestamp"];
 
@@ -49,66 +48,37 @@ test("listAdminRoutes exposes the required admin routes", async () => {
 	]);
 });
 
-test("POST create without the x-admin-secret header is rejected with 401 and the standard error shape", async () => {
-	const { handleAdminRequest } = await import("../src/admin-contract.mjs");
-	await withEnv({ ADMIN_SHARED_SECRET: ADMIN_SECRET }, async () => {
-		const response = await handleAdminRequest({
-			method: "POST",
-			path: "/api/v1/admin/llm-providers",
-			body: {
-				provider_name: "claude",
-				model_id: "claude-sonnet-4-20250514",
-				api_key: "sk-ant-should-never-appear",
-			},
-		});
-		expectStandardError(response, 401);
-		assert.doesNotMatch(JSON.stringify(response.body), /sk-ant-should-never-appear/);
-	});
-});
-
-test("POST create with an incorrect x-admin-secret value is rejected with 403", async () => {
-	const { handleAdminRequest } = await import("../src/admin-contract.mjs");
-	await withEnv({ ADMIN_SHARED_SECRET: ADMIN_SECRET }, async () => {
-		const response = await handleAdminRequest({
-			method: "POST",
-			path: "/api/v1/admin/llm-providers",
-			headers: { "x-admin-secret": "wrong-secret" },
-			body: {
-				provider_name: "claude",
-				model_id: "claude-sonnet-4-20250514",
-				api_key: "sk-ant-should-never-appear",
-			},
-		});
-		expectStandardError(response, 403);
-		assert.doesNotMatch(JSON.stringify(response.body), /sk-ant-should-never-appear/);
-	});
-});
+// reviewer-authentication design.md D11: the shared-secret header tests
+// ("missing -> 401", "wrong -> 403") are retired along with the module-level
+// check function that used to gate `handleAdminRequest`.
+// `handleAdminRequest` no longer performs its own auth check at all —
+// enforcement moved entirely to the NestJS transport boundary
+// (`SessionGuard` on `AdminController`), covered by the full-route session
+// contract sweep in `contract.test.mjs` and by `SessionGuard`'s own unit
+// tests, not by this pure-contract-layer file.
 
 test("POST create with an unsupported provider_name is rejected with 422 and never echoes the submitted api_key", async () => {
 	const { handleAdminRequest } = await import("../src/admin-contract.mjs");
-	await withEnv({ ADMIN_SHARED_SECRET: ADMIN_SECRET }, async () => {
-		const response = await handleAdminRequest({
-			method: "POST",
-			path: "/api/v1/admin/llm-providers",
-			headers: { "x-admin-secret": ADMIN_SECRET },
-			body: {
-				provider_name: "openai",
-				model_id: "gpt-4o",
-				api_key: "sk-openai-must-never-leak-999",
-			},
-		});
-		expectStandardError(response, 422);
-		assert.equal(response.body.error, "validation_error");
-		assert.ok(
-			response.body.details.issues.some((issue) => issue.field === "provider_name"),
-			"the 422 response must name provider_name as the invalid field",
-		);
-		assert.doesNotMatch(
-			JSON.stringify(response.body),
-			/sk-openai-must-never-leak-999/,
-			"an invalid-provider-name failure must never echo the submitted api_key anywhere in the response",
-		);
+	const response = await handleAdminRequest({
+		method: "POST",
+		path: "/api/v1/admin/llm-providers",
+		body: {
+			provider_name: "openai",
+			model_id: "gpt-4o",
+			api_key: "sk-openai-must-never-leak-999",
+		},
 	});
+	expectStandardError(response, 422);
+	assert.equal(response.body.error, "validation_error");
+	assert.ok(
+		response.body.details.issues.some((issue) => issue.field === "provider_name"),
+		"the 422 response must name provider_name as the invalid field",
+	);
+	assert.doesNotMatch(
+		JSON.stringify(response.body),
+		/sk-openai-must-never-leak-999/,
+		"an invalid-provider-name failure must never echo the submitted api_key anywhere in the response",
+	);
 });
 
 test("creating a provider config fails fast with a clear error (never a raw key leak) when the encryption key is misconfigured", async () => {
@@ -117,7 +87,6 @@ test("creating a provider config fails fast with a clear error (never a raw key 
 	);
 	await withEnv(
 		{
-			ADMIN_SHARED_SECRET: ADMIN_SECRET,
 			// Any non-empty connection string is enough to reach the repository
 			// construction step — no real connection is ever attempted, because
 			// the encryption-key fail-fast check happens before any DB I/O.
@@ -129,7 +98,6 @@ test("creating a provider config fails fast with a clear error (never a raw key 
 			const response = await handleAdminRequest({
 				method: "POST",
 				path: "/api/v1/admin/llm-providers",
-				headers: { "x-admin-secret": ADMIN_SECRET },
 				body: {
 					provider_name: "claude",
 					model_id: "claude-sonnet-4-20250514",
@@ -180,7 +148,6 @@ test(
 
 			await withEnv(
 				{
-					ADMIN_SHARED_SECRET: ADMIN_SECRET,
 					DATABASE_URL: databaseUrl,
 					LLM_PROVIDER_ENCRYPTION_KEY: VALID_ENCRYPTION_KEY,
 				},
@@ -189,13 +156,11 @@ test(
 						"../src/admin-contract.mjs"
 					);
 					_resetAdminContractForTests();
-					const auth = { "x-admin-secret": ADMIN_SECRET };
 
 					// --- Create: valid claude row -> 201, masked key only ---
 					const createRes = await handleAdminRequest({
 						method: "POST",
 						path: "/api/v1/admin/llm-providers",
-						headers: auth,
 						body: {
 							provider_name: "claude",
 							model_id: "claude-sonnet-4-20250514",
@@ -218,7 +183,6 @@ test(
 					const createRes2 = await handleAdminRequest({
 						method: "POST",
 						path: "/api/v1/admin/llm-providers",
-						headers: auth,
 						body: {
 							provider_name: "deepseek",
 							model_id: "deepseek-chat",
@@ -232,7 +196,6 @@ test(
 					const updateRes = await handleAdminRequest({
 						method: "PATCH",
 						path: `/api/v1/admin/llm-providers/${claudeId}`,
-						headers: auth,
 						body: { model_id: "claude-sonnet-4-5-20250929" },
 					});
 					assert.equal(updateRes.status, 200);
@@ -248,7 +211,6 @@ test(
 					const activateRes = await handleAdminRequest({
 						method: "POST",
 						path: `/api/v1/admin/llm-providers/${claudeId}/activate`,
-						headers: auth,
 					});
 					assert.equal(activateRes.status, 200);
 					assert.equal(activateRes.body.is_active, true);
@@ -257,7 +219,6 @@ test(
 					const activateRes2 = await handleAdminRequest({
 						method: "POST",
 						path: `/api/v1/admin/llm-providers/${deepseekId}/activate`,
-						headers: auth,
 					});
 					assert.equal(activateRes2.status, 200);
 					assert.equal(activateRes2.body.is_active, true);
@@ -266,7 +227,6 @@ test(
 					const listRes = await handleAdminRequest({
 						method: "GET",
 						path: "/api/v1/admin/llm-providers",
-						headers: auth,
 					});
 					assert.equal(listRes.status, 200);
 					assert.equal(listRes.body.items.length, 2);

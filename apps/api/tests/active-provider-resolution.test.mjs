@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
+import { createAuthenticatedSession } from "./support/reviewer-session-fixture.mjs";
 
 const DEFAULT_LOCAL_DATABASE_URL = "postgres://pg1:pg1@localhost:5432/pg1";
 const databaseUrl = process.env.DATABASE_URL ?? DEFAULT_LOCAL_DATABASE_URL;
@@ -87,17 +88,19 @@ async function connectOrSkip(t) {
 	return client;
 }
 
-async function triggerRun({ handleApiRequest, filename }) {
+async function triggerRun({ handleApiRequest, filename, headers }) {
 	const uploadRes = await handleApiRequest({
 		method: "POST",
 		path: "/api/v1/thesis-documents",
 		body: { files: [pdfFile(filename)], uploaderUserId: 1 },
+		headers,
 	});
 	assert.equal(uploadRes.status, 201);
 	return handleApiRequest({
 		method: "POST",
 		path: `/api/v1/thesis-documents/${uploadRes.body.id}/review-runs`,
 		body: {},
+		headers,
 	});
 }
 
@@ -134,9 +137,18 @@ test(
 		);
 		_resetLiveReviewPipelineForTests();
 
+		// reviewer-authentication PR3a: every `handleApiRequest` call below now
+		// sits behind the deny-by-default session gate.
+		const session = await createAuthenticatedSession({ connectionString: databaseUrl });
+		const headers = session.headers;
+
 		try {
 			// --- Scenario 1: zero active providers -> explicit failure, worker never even called ---
-			const runZeroActive = await triggerRun({ handleApiRequest, filename: "zero-active.pdf" });
+			const runZeroActive = await triggerRun({
+				handleApiRequest,
+				filename: "zero-active.pdf",
+				headers,
+			});
 			assert.equal(runZeroActive.status, 202);
 			assert.equal(runZeroActive.body.status, "failed");
 			assert.match(runZeroActive.body.error_summary, /no active LLM provider configured/i);
@@ -155,7 +167,7 @@ test(
 			});
 			await repository.activate(providerOne.id);
 
-			const runOne = await triggerRun({ handleApiRequest, filename: "provider-one.pdf" });
+			const runOne = await triggerRun({ handleApiRequest, filename: "provider-one.pdf", headers });
 			assert.equal(runOne.body.status, "completed");
 			assert.deepEqual(worker.getLastReviewBody(), {
 				thesis_text: "Active-provider-resolution test thesis excerpt.",
@@ -172,7 +184,7 @@ test(
 			});
 			await repository.activate(providerTwo.id);
 
-			const runTwo = await triggerRun({ handleApiRequest, filename: "provider-two.pdf" });
+			const runTwo = await triggerRun({ handleApiRequest, filename: "provider-two.pdf", headers });
 			assert.equal(runTwo.body.status, "completed");
 			assert.deepEqual(worker.getLastReviewBody(), {
 				thesis_text: "Active-provider-resolution test thesis excerpt.",
@@ -185,7 +197,7 @@ test(
 			worker.setNextReview(502, {
 				detail: "Claude API call failed: upstream timeout",
 			});
-			const runFailure = await triggerRun({ handleApiRequest, filename: "provider-two-failure.pdf" });
+			const runFailure = await triggerRun({ handleApiRequest, filename: "provider-two-failure.pdf", headers });
 			assert.equal(runFailure.body.status, "failed");
 			assert.ok(runFailure.body.error_summary);
 			assert.doesNotMatch(

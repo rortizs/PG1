@@ -1,4 +1,3 @@
-import { createHash, timingSafeEqual } from "node:crypto";
 import { createProviderConfigRepository } from "./db/provider-config-repository.mjs";
 import { EncryptionKeyError } from "./security/provider-key-cipher.mjs";
 
@@ -7,9 +6,10 @@ import { EncryptionKeyError } from "./security/provider-key-cipher.mjs";
  * its own isolated module (design decision #7) so the contract-tested
  * `api-contract.mjs`/`contract.test.mjs` seam stays byte-untouched.
  *
- * `x-admin-secret` shared-secret gate (design decision #6): an explicit,
- * documented TEMPORARY MVP measure — NOT real authentication/authorization.
- * Never present it as such in UI copy or docs.
+ * reviewer-authentication design.md D11: the temporary MVP shared-secret
+ * header gate (design decision #6) is retired. Auth enforcement for these
+ * routes now lives entirely at the NestJS transport boundary (`SessionGuard`
+ * on `AdminController`) — this module no longer performs its own auth check.
  */
 
 const SUPPORTED_PROVIDER_NAMES = ["claude", "deepseek", "groq"];
@@ -55,9 +55,6 @@ export async function handleAdminRequest({
 	headers = {},
 }) {
 	const normalizedMethod = method.toUpperCase();
-
-	const authError = checkAdminSecretHeader(headers);
-	if (authError) return authError;
 
 	if (normalizedMethod === "GET" && path === "/api/v1/admin/llm-providers") {
 		return withRepository(async (repository) => {
@@ -209,49 +206,6 @@ function validateUpdatePayload(body) {
 		apiKey: body?.api_key,
 		metadata: body?.metadata,
 	});
-}
-
-/**
- * Constant-time (digest-based, so mismatched lengths never leak via early
- * exit) comparison of the request's `x-admin-secret` header against
- * `ADMIN_SHARED_SECRET`. Returns `null` when the request may proceed, or a
- * standard-shaped `401`/`403` error response otherwise.
- */
-export function checkAdminSecretHeader(headers) {
-	const provided = lookupHeader(headers, "x-admin-secret");
-	if (!provided) {
-		return errorResponse(
-			401,
-			"unauthorized",
-			"The x-admin-secret header is required for admin requests.",
-			{},
-		);
-	}
-	const expected = process.env.ADMIN_SHARED_SECRET || "";
-	if (!expected || !constantTimeEquals(provided, expected)) {
-		return errorResponse(
-			403,
-			"forbidden",
-			"The provided admin secret is not valid.",
-			{},
-		);
-	}
-	return null;
-}
-
-function constantTimeEquals(a, b) {
-	const digestA = createHash("sha256").update(String(a)).digest();
-	const digestB = createHash("sha256").update(String(b)).digest();
-	return timingSafeEqual(digestA, digestB);
-}
-
-function lookupHeader(headers, name) {
-	if (!headers) return undefined;
-	const lowerName = name.toLowerCase();
-	for (const key of Object.keys(headers)) {
-		if (key.toLowerCase() === lowerName) return headers[key];
-	}
-	return undefined;
 }
 
 function ok(body) {

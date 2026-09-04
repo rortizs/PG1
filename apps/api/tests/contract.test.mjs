@@ -1,9 +1,40 @@
-import { test } from "node:test";
+import { test, before } from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { handleApiRequest, listApiRoutes } from "../src/api-contract.mjs";
-import { _resetLiveReviewPipelineForTests } from "../src/live-review-pipeline.mjs";
+import {
+	_resetLiveReviewPipelineForTests,
+	getLivePipeline,
+} from "../src/live-review-pipeline.mjs";
 import { processThesisDocumentUpload } from "../src/thesis-documents/upload-service.mjs";
+import { createAuthenticatedSession } from "./support/reviewer-session-fixture.mjs";
+
+const DEFAULT_LOCAL_DATABASE_URL = "postgres://pg1:pg1@localhost:5432/pg1";
+const databaseUrl = process.env.DATABASE_URL ?? DEFAULT_LOCAL_DATABASE_URL;
+
+// reviewer-authentication PR3a: every route below (except the two public
+// auth routes) now sits behind the deny-by-default `checkSession` gate
+// (design.md D6). Reset the schema to head and mint one real reviewer
+// session once for this whole file, mirroring the real-Postgres pattern
+// every other integration test file already uses.
+let authHeaders;
+
+before(async () => {
+	const { default: pg } = await import("pg");
+	const migrate = await import("../src/db/migrate.mjs");
+	const client = new pg.Client({
+		connectionString: databaseUrl,
+		connectionTimeoutMillis: 2000,
+	});
+	await client.connect();
+	await migrate.migrateDown({ client }).catch(() => {});
+	await migrate.migrateUp({ client });
+	await client.end();
+
+	process.env.DATABASE_URL = databaseUrl;
+	const session = await createAuthenticatedSession({ connectionString: databaseUrl });
+	authHeaders = session.headers;
+});
 
 const STANDARD_ERROR_KEYS = [
 	"error",
@@ -48,10 +79,19 @@ test("API contract exposes the required versioned resource routes", () => {
 		"GET /api/v1/review-board/cards",
 		"PATCH /api/v1/review-board/cards/{card_id}/priority",
 		"POST /api/v1/review-board/cards/{card_id}/approval",
+		"POST /api/v1/auth/sessions",
+		"DELETE /api/v1/auth/sessions/current",
 	]);
 });
 
-test("GET /api/v1/review-board/cards returns an explicit empty board when no live repository is configured", async () => {
+// reviewer-authentication PR3a: with `DATABASE_URL` unset, `checkSession`
+// (via `resolveReviewerRepository()`) cannot verify ANY session, so the
+// deny-by-default gate now answers `503` for every protected route before
+// ever reaching the board-repository-unavailable branch this test used to
+// exercise — the previous "graceful 200 empty board" behavior for this
+// specific unauthenticated case no longer applies once auth itself requires
+// a reachable database.
+test("GET /api/v1/review-board/cards returns 503 when no database is configured, because the session gate itself requires one", async () => {
 	const originalDatabaseUrl = process.env.DATABASE_URL;
 	delete process.env.DATABASE_URL;
 	_resetLiveReviewPipelineForTests();
@@ -59,11 +99,11 @@ test("GET /api/v1/review-board/cards returns an explicit empty board when no liv
 		const response = await handleApiRequest({
 			method: "GET",
 			path: "/api/v1/review-board/cards",
+			headers: authHeaders,
 		});
 
-		assert.equal(response.status, 200);
-		expectPaginatedList(response.body);
-		assert.deepEqual(response.body.items, []);
+		expectStandardError(response, 503);
+		assert.equal(response.body.error, "service_unavailable");
 	} finally {
 		if (originalDatabaseUrl === undefined) delete process.env.DATABASE_URL;
 		else process.env.DATABASE_URL = originalDatabaseUrl;
@@ -75,6 +115,7 @@ test("POST /api/v1/thesis-documents returns a contract-valid upload stub", async
 	const response = await handleApiRequest({
 		method: "POST",
 		path: "/api/v1/thesis-documents",
+		headers: authHeaders,
 	});
 
 	assert.equal(response.status, 201);
@@ -142,6 +183,7 @@ test("GET /api/v1/thesis-documents returns a bounded paginated list with filters
 		method: "GET",
 		path: "/api/v1/thesis-documents",
 		query: { page: "2", page_size: "10", status: "uploaded" },
+		headers: authHeaders,
 	});
 
 	assert.equal(response.status, 200);
@@ -156,6 +198,7 @@ test("POST /api/v1/thesis-documents/{document_id}/review-runs returns lifecycle-
 		method: "POST",
 		path: "/api/v1/thesis-documents/doc_contract/review-runs",
 		body: { pipelineVersion: "pipeline-contract" },
+		headers: authHeaders,
 	});
 
 	assert.equal(response.status, 202);
@@ -174,6 +217,7 @@ test("GET /api/v1/review-runs/{run_id} returns a status contract stub", async ()
 	const response = await handleApiRequest({
 		method: "GET",
 		path: "/api/v1/review-runs/run_contract",
+		headers: authHeaders,
 	});
 
 	assert.equal(response.status, 200);
@@ -188,6 +232,7 @@ test("GET /api/v1/review-runs/{run_id}/findings returns bounded findings list wi
 		method: "GET",
 		path: "/api/v1/review-runs/run_contract/findings",
 		query: { page: "1", page_size: "25", type: "apa", severity: "medium" },
+		headers: authHeaders,
 	});
 
 	assert.equal(response.status, 200);
@@ -201,6 +246,7 @@ test("GET /api/v1/review-runs/{run_id}/report-artifacts returns pending for an u
 	const response = await handleApiRequest({
 		method: "GET",
 		path: "/api/v1/review-runs/run_contract/report-artifacts",
+		headers: authHeaders,
 	});
 
 	assert.equal(response.status, 200);
@@ -214,6 +260,7 @@ test("GET /api/v1/review-runs/{run_id}/report-artifacts returns a downloadable M
 		method: "POST",
 		path: "/api/v1/thesis-documents/doc_report_contract/review-runs",
 		body: { pipelineVersion: "pipeline-report-contract" },
+		headers: authHeaders,
 	});
 	assert.equal(runResponse.status, 202);
 	const runId = runResponse.body.id;
@@ -221,6 +268,7 @@ test("GET /api/v1/review-runs/{run_id}/report-artifacts returns a downloadable M
 	const response = await handleApiRequest({
 		method: "GET",
 		path: `/api/v1/review-runs/${runId}/report-artifacts`,
+		headers: authHeaders,
 	});
 
 	assert.equal(response.status, 200);
@@ -264,11 +312,72 @@ test("invalid pagination returns the standard error shape", async () => {
 		method: "GET",
 		path: "/api/v1/thesis-documents",
 		query: { page: "0", page_size: "500" },
+		headers: authHeaders,
 	});
 
 	expectStandardError(response, 422);
 	assert.equal(response.body.error, "validation_error");
 	assert.ok(Array.isArray(response.body.details.issues));
+});
+
+// reviewer-authentication PR3a (design.md D6/Scope Guard, Unit 3a RED case
+// 1): every route `listApiRoutes()` reports, except the two public auth
+// routes, must 401 with no `Authorization` header — proven directly against
+// every route, not by convention — and must never read/create/modify
+// anything (no side effect fires) before the session gate rejects it.
+test("session gate: every route except the two auth routes returns 401 with no Authorization header, and no side effect fires", async () => {
+	const protectedRoutes = listApiRoutes().filter(
+		(route) =>
+			!(route.method === "POST" && route.path === "/api/v1/auth/sessions") &&
+			!(
+				route.method === "DELETE" &&
+				route.path === "/api/v1/auth/sessions/current"
+			),
+	);
+	assert.ok(protectedRoutes.length > 0, "the sweep must cover at least one route");
+
+	const boardBefore =
+		(await getLivePipeline()?.repository.listReviewBoardCards()) ?? [];
+
+	for (const route of protectedRoutes) {
+		const concretePath = route.path
+			.replace("{document_id}", "sweep_fixture_doc")
+			.replace("{run_id}", "sweep_fixture_run")
+			.replace("{card_id}", "sweep_fixture_card");
+		const response = await handleApiRequest({
+			method: route.method,
+			path: concretePath,
+			body: { reviewerName: "Should Never Persist", priority: "urgent" },
+		});
+		expectStandardError(response, 401);
+		assert.equal(
+			response.body.error,
+			"unauthorized",
+			`${route.method} ${route.path} must 401 unauthorized with no session`,
+		);
+	}
+
+	const boardAfter =
+		(await getLivePipeline()?.repository.listReviewBoardCards()) ?? [];
+	assert.deepEqual(
+		boardAfter,
+		boardBefore,
+		"no unauthenticated request in the sweep above may have created/modified a review-board card",
+	);
+});
+
+// reviewer-authentication PR3a (TRIANGULATE): a genuinely unknown route must
+// still 404, never leaking a 401 that would confirm the path is registered —
+// the session gate is skipped entirely for paths that match no `ROUTES`
+// entry, and it must not accidentally bypass the existing 404 branch either.
+test("session gate: a genuinely unknown route still 404s with no Authorization header, never 401", async () => {
+	const response = await handleApiRequest({
+		method: "GET",
+		path: "/api/v1/genuinely-unknown-route",
+	});
+
+	expectStandardError(response, 404);
+	assert.equal(response.body.error, "not_found");
 });
 
 test("API contract has NestJS-compatible controller and module seams", async () => {

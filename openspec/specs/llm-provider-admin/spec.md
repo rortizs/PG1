@@ -51,21 +51,6 @@ previously active provider.
 - THEN the run fails with an explicit "no active LLM provider configured" error
 - AND the system MUST NOT fall back to an environment variable or fabricate a result
 
-### Requirement: Admin Shared-Secret Access Gate (Temporary MVP)
-Admin CRUD/activate endpoints MUST require a shared-secret header. This is a
-documented temporary MVP gate, NOT full authentication/authorization.
-
-#### Scenario: Request without the shared-secret header is rejected
-- GIVEN a request to an admin endpoint with no shared-secret header
-- WHEN the request is submitted
-- THEN the system returns `401 unauthorized`
-- AND no provider data is created, modified, or returned
-
-#### Scenario: Request with an incorrect shared-secret value is rejected
-- GIVEN a request with a shared-secret header value that does not match the configured secret
-- WHEN the request is submitted
-- THEN the system returns `403 forbidden`
-
 ### Requirement: Runtime Active-Provider Credential Resolution
 Each review run MUST resolve the currently active provider at the time the
 run starts (re-resolved per review-run-trigger, never cached for the life of

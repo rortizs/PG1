@@ -1,14 +1,12 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { FormControl, FormGroup, ReactiveFormsModule } from '@angular/forms';
 import { AdminApiClient } from './admin-api-client';
-import { AdminSecretStore } from './admin-secret-store';
 import {
   AdminProviderRow,
   buildAdminProvidersViewModel,
   buildCreateProviderPayload,
   buildUpdateProviderPayload,
   extractAdminErrorMessage,
-  isAdminAuthError,
   maskedKeyLabel,
 } from './admin-providers-view';
 
@@ -20,11 +18,10 @@ const SUPPORTED_PROVIDER_NAMES = ['claude', 'deepseek', 'groq'] as const;
  * is cleared after every successful save and never pre-filled with a real
  * value when editing an existing row), and a per-row activate action.
  *
- * Every request goes through `AdminApiClient`, which requires the
- * session-scoped `x-admin-secret` (design decision #9) — the first admin
- * action on this page prompts for it; a `403` (wrong secret) clears the
- * cached value so the very next action re-prompts instead of repeating a
- * rejected secret.
+ * Access is gated by the same reviewer session as every other page
+ * (`requireSession` route guard + `sessionInterceptor`) — there is no
+ * separate admin role or secret: any authenticated reviewer can reach this
+ * page, per the confirmed reviewer-authentication design decision D6.
  */
 @Component({
   selector: 'app-admin-providers-page',
@@ -32,10 +29,6 @@ const SUPPORTED_PROVIDER_NAMES = ['claude', 'deepseek', 'groq'] as const;
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <h1>LLM provider admin</h1>
-    <p role="note">
-      Access to this page is gated by a temporary shared secret, NOT real
-      authentication. Never share it outside the admin team.
-    </p>
 
     @if (loadError(); as message) {
       <p role="alert">{{ message }}</p>
@@ -155,16 +148,6 @@ const SUPPORTED_PROVIDER_NAMES = ['claude', 'deepseek', 'groq'] as const;
       margin-bottom: var(--pg1-node-gap);
     }
 
-    p[role='note'] {
-      font-family: var(--pg1-font-mono);
-      font-size: var(--pg1-label-mono-sm-size);
-      letter-spacing: var(--pg1-label-mono-sm-tracking);
-      color: var(--pg1-color-academic-blue);
-      border-left: 1px solid var(--pg1-color-academic-blue);
-      padding: calc(var(--pg1-space-unit) * 2) var(--pg1-node-gap);
-      margin-bottom: var(--pg1-space-gutter);
-    }
-
     p[role='alert'] {
       margin-bottom: var(--pg1-space-gutter);
     }
@@ -260,7 +243,6 @@ const SUPPORTED_PROVIDER_NAMES = ['claude', 'deepseek', 'groq'] as const;
 })
 export class AdminProvidersPage {
   private readonly api = inject(AdminApiClient);
-  private readonly secretStore = inject(AdminSecretStore);
 
   protected readonly providerNames = SUPPORTED_PROVIDER_NAMES;
 
@@ -347,7 +329,6 @@ export class AdminProvidersPage {
 
   private failForm(err: unknown): void {
     this.submitting.set(false);
-    if (isAdminAuthError(err)) this.secretStore.clearSecret();
     this.formError.set(extractAdminErrorMessage(err));
   }
 

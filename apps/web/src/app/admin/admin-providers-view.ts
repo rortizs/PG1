@@ -4,9 +4,11 @@
  * (Work Unit 8 of `mvp-vertical-slice`): the decision of "what to render"
  * and "what to send" is a plain function, directly unit-testable with
  * `node:test` without an Angular TestBed/jsdom harness.
- * `admin-providers-page.ts` consumes this for its template branch, its
- * create/update request payloads, and its session-scoped admin-secret gate
- * (design decision #9).
+ * `admin-providers-page.ts` consumes this for its template branch and its
+ * create/update request payloads. Authentication/authorization is no longer
+ * this module's concern (reviewer-authentication `SessionStore`/
+ * `sessionInterceptor` own it now); this file only classifies and surfaces
+ * request errors.
  */
 
 export interface AdminProviderRow {
@@ -104,30 +106,6 @@ export function buildActivatePath(id: number): string {
   return `${buildProviderPath(id)}/activate`;
 }
 
-/** Gates every admin request on a real, non-blank secret — never a silent skip. */
-export function canSendAdminRequest(secret: string | null): boolean {
-  return typeof secret === 'string' && secret.trim() !== '';
-}
-
-/**
- * Session-scoped admin-secret resolution (design decision #9): reuses an
- * already-cached secret without re-prompting; otherwise calls `promptFn`
- * (the real caller wires this to `window.prompt`, injected here so this
- * stays pure/testable) at most once. A blank entry or an explicit
- * cancellation (`null`) is treated as "no secret" — the caller must not
- * send a request in that case, never fabricate an empty-string secret.
- */
-export function resolveAdminSecretForRequest(
-  currentSecret: string | null,
-  promptFn: () => string | null,
-): string | null {
-  if (canSendAdminRequest(currentSecret)) return currentSecret;
-  const entered = promptFn();
-  if (entered === null) return null;
-  const trimmed = entered.trim();
-  return trimmed === '' ? null : trimmed;
-}
-
 interface HttpErrorLike {
   status?: number;
   error?: { message?: string };
@@ -137,25 +115,28 @@ function isHttpErrorLike(err: unknown): err is HttpErrorLike {
   return typeof err === 'object' && err !== null && 'status' in err;
 }
 
-/** 401 (no secret sent) / 403 (wrong secret) — see spec's admin-gate scenarios. */
+/**
+ * `401` under session auth means "no valid reviewer session" (D6 — there is
+ * no `403` branch: every authenticated reviewer is authorized for every
+ * route, admin included). `sessionInterceptor` already clears the store and
+ * routes to `/login` on `401`; this only classifies the error so the page
+ * can still surface a message for the brief moment before that redirect.
+ */
 export function isAdminAuthError(err: unknown): boolean {
   if (!isHttpErrorLike(err)) return false;
-  return err.status === 401 || err.status === 403;
+  return err.status === 401;
 }
 
 /**
  * Never a silent failure: every admin request error surfaces a specific,
- * actionable message — distinguishing "no secret" (401) from "wrong
- * secret" (403) from the server's own validation/error message, with a
- * generic-but-visible fallback for anything else.
+ * actionable message, distinguishing "session required" (401) from the
+ * server's own validation/error message, with a generic-but-visible
+ * fallback for anything else.
  */
 export function extractAdminErrorMessage(err: unknown): string {
   if (isHttpErrorLike(err)) {
     if (err.status === 401) {
-      return 'An admin secret is required to continue. Please try again.';
-    }
-    if (err.status === 403) {
-      return 'The admin secret was rejected. Please re-enter it and try again.';
+      return 'Your session has expired. Please sign in again.';
     }
     if (err.error?.message) return err.error.message;
   }

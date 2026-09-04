@@ -7,8 +7,6 @@ import {
   buildUpdateProviderPayload,
   buildProviderPath,
   buildActivatePath,
-  canSendAdminRequest,
-  resolveAdminSecretForRequest,
   extractAdminErrorMessage,
   isAdminAuthError,
 } from '../src/app/admin/admin-providers-view.ts';
@@ -110,57 +108,11 @@ test('buildActivatePath encodes the provider id into the activate route', () => 
   assert.equal(buildActivatePath(42), '/api/v1/admin/llm-providers/42/activate');
 });
 
-// --- session-scoped secret prompt gating requests ---
+// --- session-based auth error UI states (reviewer-authentication) ---
 
-test('resolveAdminSecretForRequest reuses an already-cached secret without prompting again', () => {
-  const secret = resolveAdminSecretForRequest('already-entered-secret', () => {
-    throw new Error('promptFn must not be called when a secret is already cached');
-  });
-  assert.equal(secret, 'already-entered-secret');
-});
-
-test('resolveAdminSecretForRequest prompts exactly once per session when no secret is cached yet', () => {
-  let promptCalls = 0;
-  const secret = resolveAdminSecretForRequest(null, () => {
-    promptCalls += 1;
-    return 'freshly-entered-secret';
-  });
-  assert.equal(secret, 'freshly-entered-secret');
-  assert.equal(promptCalls, 1);
-});
-
-test('resolveAdminSecretForRequest trims whitespace from a freshly-entered secret', () => {
-  const secret = resolveAdminSecretForRequest(null, () => '  padded-secret  ');
-  assert.equal(secret, 'padded-secret');
-});
-
-test('resolveAdminSecretForRequest returns null (never a request) when the admin cancels the prompt', () => {
-  const secret = resolveAdminSecretForRequest(null, () => null);
-  assert.equal(secret, null);
-});
-
-test('resolveAdminSecretForRequest treats a blank/whitespace-only entry as a cancellation, not an empty secret', () => {
-  const secret = resolveAdminSecretForRequest(null, () => '   ');
-  assert.equal(secret, null);
-});
-
-test('canSendAdminRequest gates requests on a real, non-blank secret', () => {
-  assert.equal(canSendAdminRequest(null), false);
-  assert.equal(canSendAdminRequest(''), false);
-  assert.equal(canSendAdminRequest('   '), false);
-  assert.equal(canSendAdminRequest('a-real-secret'), true);
-});
-
-// --- 401/403 UI states (TRIANGULATE) ---
-
-test('extractAdminErrorMessage surfaces a clear, specific message on 401 (no secret sent)', () => {
+test('extractAdminErrorMessage surfaces a clear, specific message on 401 (session required)', () => {
   const message = extractAdminErrorMessage({ status: 401, error: { message: 'nope' } });
-  assert.match(message, /admin secret is required/i);
-});
-
-test('extractAdminErrorMessage surfaces a clear, specific message on 403 (wrong secret)', () => {
-  const message = extractAdminErrorMessage({ status: 403, error: { message: 'nope' } });
-  assert.match(message, /rejected|not valid/i);
+  assert.match(message, /session has expired|sign in/i);
 });
 
 test('extractAdminErrorMessage falls back to the server message for other errors, never a silent failure', () => {
@@ -176,9 +128,9 @@ test('extractAdminErrorMessage has a generic-but-non-silent fallback for unrecog
   assert.equal(message, 'network down');
 });
 
-test('isAdminAuthError classifies 401/403 as auth errors requiring the secret to be re-entered', () => {
+test('isAdminAuthError classifies 401 as requiring a fresh session; there is no 403 branch under session auth (D6)', () => {
   assert.equal(isAdminAuthError({ status: 401 }), true);
-  assert.equal(isAdminAuthError({ status: 403 }), true);
+  assert.equal(isAdminAuthError({ status: 403 }), false);
   assert.equal(isAdminAuthError({ status: 422 }), false);
   assert.equal(isAdminAuthError({ status: 500 }), false);
 });

@@ -18,7 +18,7 @@ function startFakeWorker() {
 		req.on("end", () => {
 			lastBody = JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}");
 			res.writeHead(200, { "content-type": "application/json" });
-			res.end(JSON.stringify({ finding: null }));
+			res.end(JSON.stringify({ findings: [], stats: { chunks: 0 } }));
 		});
 	});
 	return new Promise((resolve) => {
@@ -82,7 +82,32 @@ async function setupPipeline({ client, runCagReview }) {
 	const { lifecycle, getReviewRunDbId } = createReviewPipeline({
 		repository,
 		resolveThesisDocumentDbId: async () => thesisDocumentDbId,
-		extractThesisText: async () => ({ fullText: "Extracted thesis excerpt." }),
+		extractThesisText: async () => ({
+			fullText: "Extracted thesis excerpt.",
+			pages: [
+				{
+					page_number: 2,
+					section_title: "CAPÍTULO 1",
+					text: "Extracted thesis excerpt.",
+				},
+			],
+			sections: [
+				{
+					index: 0,
+					parent_index: null,
+					section_type: "chapter",
+					title: "CAPÍTULO 1",
+					normalized_title: "capitulo 1",
+					start_page_number: 2,
+					end_page_number: 2,
+					start_offset: 0,
+					end_offset: 24,
+					is_location_uncertain: false,
+					metadata: {},
+				},
+			],
+			content_type: "application/pdf",
+		}),
 		runCagReview,
 		resolveNormativeSourceId: async (ref) => normativeSourceIds[ref] ?? null,
 	});
@@ -107,18 +132,21 @@ test("review pipeline: grounded CAG result persists exactly one finding with evi
 			// augments its result with these two fields) — the orchestrator
 			// must persist them onto the completed review_run.
 			runCagReview: async () => ({
-				finding: {
-					title: "Missing APA citation",
-					explanation: "Excerpt paraphrases without citing.",
-					recommendation: "Add an APA citation.",
-					evidence_text: "Extracted thesis excerpt.",
-					page_number: 2,
-					section_title: null,
-					normative_source_ref: "lineamientos_ingenieria_sistemas.txt",
-					severity: "medium",
-					confidence: 0.75,
-					producer_id: "claude-sonnet-4",
-				},
+				findings: [
+					{
+						title: "Missing APA citation",
+						explanation: "Excerpt paraphrases without citing.",
+						recommendation: "Add an APA citation.",
+						evidence_text: "Extracted thesis excerpt.",
+						page_number: 2,
+						section_index: 0,
+						normative_source_ref: "lineamientos_ingenieria_sistemas.txt",
+						severity: "medium",
+						confidence: 0.75,
+						producer_id: "claude-sonnet-4",
+					},
+				],
+				stats: { chunks: 1 },
 				providerName: "claude",
 				modelId: "claude-sonnet-4-20250514",
 			}),
@@ -166,7 +194,7 @@ test("review pipeline: ungrounded CAG result yields zero findings and still comp
 
 		const { lifecycle } = await setupPipeline({
 			client,
-			runCagReview: async () => ({ finding: null }),
+			runCagReview: async () => ({ findings: [], stats: { chunks: 1 } }),
 		});
 
 		const response = await lifecycle.startReviewRun({
@@ -372,9 +400,7 @@ test("a review run with zero detected sections still persists pages and findings
 		thesis_document_id: "doc_2",
 	});
 
-	const sectionsCall = calls.find(
-		(c) => c.fn === "insertDocumentSections",
-	).args;
+	const sectionsCall = calls.find((c) => c.fn === "insertDocumentSections").args;
 	assert.deepEqual(sectionsCall.sections, []);
 
 	const persistCall = calls.find((c) => c.fn === "persistFinding").args;
@@ -672,9 +698,7 @@ test("orchestrator injects retrieved normative context into CAG review and persi
 		resolveThesisDocumentDbId: async () => 1,
 		extractThesisText: async () => ({
 			fullText: "The thesis omits APA citation details.",
-			pages: [
-				{ page_number: 1, text: "The thesis omits APA citation details." },
-			],
+			pages: [{ page_number: 1, text: "The thesis omits APA citation details." }],
 			sections: [],
 			content_type: "application/pdf",
 		}),
@@ -984,7 +1008,7 @@ test("approval-gate isolation call-path proof (D9): a rules-persistence run neve
 	assert.equal(persistCalls.length, 1);
 });
 
-test("defaultRunCagReview forwards provider_name/api_key/model_id to the worker when supplied, and omits them entirely when not (backward compatible)", async () => {
+test("defaultRunCagReview sends the Work Unit 8 structured /internal/review body", async () => {
 	const worker = await startFakeWorker();
 	const previousWorkerBaseUrl = process.env.WORKER_BASE_URL;
 	// `DEFAULT_WORKER_BASE_URL` inside review-orchestrator.mjs is a
@@ -996,42 +1020,46 @@ test("defaultRunCagReview forwards provider_name/api_key/model_id to the worker 
 	);
 	try {
 		await defaultRunCagReview({
-			thesisText: "Some excerpt.",
-			providerName: "claude",
-			apiKey: "sk-ant-should-be-forwarded",
-			modelId: "claude-sonnet-4-5-20250929",
-		});
-		assert.deepEqual(worker.getLastBody(), {
-			thesis_text: "Some excerpt.",
-			provider_name: "claude",
-			api_key: "sk-ant-should-be-forwarded",
-			model_id: "claude-sonnet-4-5-20250929",
-		});
-
-		await defaultRunCagReview({ thesisText: "Old-style call." });
-		assert.deepEqual(worker.getLastBody(), { thesis_text: "Old-style call." });
-
-		await defaultRunCagReview({
-			thesisText: "Some excerpt needing retrieved context.",
-			retrievedContext: [
+			pages: [
+				{ page_number: 1, section_title: "CAPÍTULO 1", text: "Some excerpt." },
+			],
+			sections: [
 				{
-					segment_id: 7,
-					source_ref: "guide.txt",
-					segment_text: "APA citation rules require references.",
-					similarity_score: 0.03,
+					index: 0,
+					section_type: "chapter",
+					title: "CAPÍTULO 1",
+					start_page_number: 1,
+					end_page_number: 1,
+					is_location_uncertain: false,
 				},
 			],
+			judgmentProvider: {
+				provider_name: "claude",
+				api_key: "sk-ant-should-be-forwarded",
+				model_id: "claude-sonnet-4-5-20250929",
+			},
+			triageProvider: null,
 		});
 		assert.deepEqual(worker.getLastBody(), {
-			thesis_text: "Some excerpt needing retrieved context.",
-			rag_context: [
+			pages: [
+				{ page_number: 1, section_title: "CAPÍTULO 1", text: "Some excerpt." },
+			],
+			sections: [
 				{
-					segment_id: 7,
-					source_ref: "guide.txt",
-					segment_text: "APA citation rules require references.",
-					similarity_score: 0.03,
+					index: 0,
+					section_type: "chapter",
+					title: "CAPÍTULO 1",
+					start_page_number: 1,
+					end_page_number: 1,
+					is_location_uncertain: false,
 				},
 			],
+			judgment_provider: {
+				provider_name: "claude",
+				api_key: "sk-ant-should-be-forwarded",
+				model_id: "claude-sonnet-4-5-20250929",
+			},
+			triage_provider: null,
 		});
 	} finally {
 		if (previousWorkerBaseUrl === undefined) delete process.env.WORKER_BASE_URL;

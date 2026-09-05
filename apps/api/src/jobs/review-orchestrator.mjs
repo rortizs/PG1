@@ -4,6 +4,7 @@ import { createInlineReviewQueue } from "./inline-review-queue.mjs";
 const DEFAULT_WORKER_BASE_URL =
 	process.env.WORKER_BASE_URL ?? "http://localhost:8000";
 const DEFAULT_WORKER_TIMEOUT_MS = 30_000;
+const DEFAULT_WORKER_REVIEW_TIMEOUT_MS = 900_000;
 
 /**
  * Real (production-shaped) call to the worker's `/internal/review` — the
@@ -26,23 +27,40 @@ const DEFAULT_WORKER_TIMEOUT_MS = 30_000;
  */
 export async function defaultRunCagReview({
 	thesisText,
+	pages,
+	sections,
+	judgmentProvider,
+	triageProvider = null,
 	providerName,
 	apiKey,
 	modelId,
-	retrievedContext,
 }) {
-	const body = { thesis_text: thesisText };
-	if (providerName !== undefined) body.provider_name = providerName;
-	if (apiKey !== undefined) body.api_key = apiKey;
-	if (modelId !== undefined) body.model_id = modelId;
-	if (Array.isArray(retrievedContext) && retrievedContext.length > 0) {
-		body.rag_context = retrievedContext;
-	}
+	const normalizedPages = Array.isArray(pages)
+		? pages
+		: [
+				{
+					page_number: null,
+					section_title: null,
+					text: thesisText ?? "",
+				},
+			];
+	const normalizedSections = Array.isArray(sections) ? sections : [];
+	const resolvedJudgmentProvider = judgmentProvider ?? {
+		provider_name: providerName,
+		api_key: apiKey,
+		model_id: modelId,
+	};
+	const body = {
+		pages: normalizedPages,
+		sections: normalizedSections,
+		judgment_provider: resolvedJudgmentProvider,
+		triage_provider: triageProvider,
+	};
 	const response = await fetch(`${DEFAULT_WORKER_BASE_URL}/internal/review`, {
 		method: "POST",
 		headers: { "content-type": "application/json" },
 		body: JSON.stringify(body),
-		signal: AbortSignal.timeout(DEFAULT_WORKER_TIMEOUT_MS),
+		signal: AbortSignal.timeout(DEFAULT_WORKER_REVIEW_TIMEOUT_MS),
 	});
 	if (!response.ok) {
 		const detail = await response.text().catch(() => "");
@@ -105,6 +123,17 @@ function findSectionIdForPage(sections, pageNumber) {
 	return bestId;
 }
 
+function buildFindingMetadata(finding, retrievedContext) {
+	const metadata = { ...(finding.metadata ?? {}) };
+	if (retrievedContext.length === 0) return metadata;
+	metadata.rag_context = {
+		mode: "retrieved",
+		segment_ids: retrievedContext.map((item) => item.segment_id),
+		source_refs: retrievedContext.map((item) => item.source_ref),
+	};
+	return metadata;
+}
+
 /**
  * Builds the synchronous processor that drives one review run end to end:
  * extract -> CAG review -> persist. Never rethrows — any failure (worker
@@ -140,8 +169,7 @@ export function createReviewOrchestrationProcessor({
 
 		let reviewRunDbId;
 		try {
-			const thesisDocumentDbId =
-				await resolveThesisDocumentDbId(thesisDocumentId);
+			const thesisDocumentDbId = await resolveThesisDocumentDbId(thesisDocumentId);
 			reviewRunDbId = await repository.insertReviewRun({
 				thesisDocumentId: thesisDocumentDbId,
 				pipelineVersion,
@@ -227,9 +255,9 @@ export function createReviewOrchestrationProcessor({
 
 			for (const ruleFinding of ruleFindings) {
 				const documentPageId =
-					ruleFinding.page_number != null
-						? (idByPageNumber[ruleFinding.page_number] ?? null)
-						: null;
+					ruleFinding.page_number == null
+						? null
+						: (idByPageNumber[ruleFinding.page_number] ?? null);
 				const documentSectionId = findSectionIdForPage(
 					insertedSections,
 					ruleFinding.page_number ?? null,
@@ -291,29 +319,39 @@ export function createReviewOrchestrationProcessor({
 						retrievedContext = [];
 					}
 				}
-				reviewResult = await runCagReview({
+				const reviewRequest = {
 					thesisText,
-					...(retrievedContext.length > 0 ? { retrievedContext } : {}),
-				});
+					pages: extractionPages,
+					sections: extractionSections,
+				};
+				if (retrievedContext.length > 0) {
+					reviewRequest.retrievedContext = retrievedContext;
+				}
+				reviewResult = await runCagReview(reviewRequest);
 			} catch (error) {
 				llmError = error;
 			}
-			const finding = reviewResult?.finding ?? null;
+			let reviewFindings = [];
+			if (Array.isArray(reviewResult?.findings)) {
+				reviewFindings = reviewResult.findings;
+			} else if (reviewResult?.finding) {
+				reviewFindings = [reviewResult.finding];
+			}
 
 			lifecycle.transitionReviewRun(lifecycleRunId, "reporting");
 
-			if (finding) {
+			for (const finding of reviewFindings) {
 				const normativeSourceId = await resolveNormativeSourceId(
 					finding.normative_source_ref,
 				);
 				const documentPageId =
-					finding.page_number != null
-						? (idByPageNumber[finding.page_number] ?? null)
-						: null;
-				const documentSectionId = findSectionIdForPage(
-					insertedSections,
-					finding.page_number ?? null,
-				);
+					finding.page_number == null
+						? null
+						: (idByPageNumber[finding.page_number] ?? null);
+				const documentSectionId =
+					finding.section_index == null
+						? findSectionIdForPage(insertedSections, finding.page_number ?? null)
+						: (idByIndex[finding.section_index] ?? null);
 				await repository.persistFinding({
 					reviewRunId: reviewRunDbId,
 					normativeSourceId,
@@ -326,20 +364,7 @@ export function createReviewOrchestrationProcessor({
 						recommendation: finding.recommendation ?? null,
 						producerType: finding.producer_type ?? "controlled_rag",
 						producerId: finding.producer_id,
-						metadata:
-							retrievedContext.length > 0
-								? {
-										rag_context: {
-											mode: "retrieved",
-											segment_ids: retrievedContext.map(
-												(item) => item.segment_id,
-											),
-											source_refs: retrievedContext.map(
-												(item) => item.source_ref,
-											),
-										},
-									}
-								: {},
+						metadata: buildFindingMetadata(finding, retrievedContext),
 					},
 					evidence: [
 						{
@@ -370,6 +395,10 @@ export function createReviewOrchestrationProcessor({
 			if (ruleError) partialFailure.rules = ruleError.message;
 			if (llmError) partialFailure.llm = llmError.message;
 			const hasPartialFailure = Object.keys(partialFailure).length > 0;
+			const completionMetadata = {};
+			if (reviewResult?.stats) completionMetadata.cag_review = reviewResult.stats;
+			if (hasPartialFailure) completionMetadata.partial_failure = partialFailure;
+			const hasCompletionMetadata = Object.keys(completionMetadata).length > 0;
 
 			await repository.updateReviewRunStatus(reviewRunDbId, {
 				completedAt: new Date(),
@@ -389,9 +418,7 @@ export function createReviewOrchestrationProcessor({
 				errorSummary: hasPartialFailure
 					? (ruleError?.message ?? llmError?.message)
 					: null,
-				metadata: hasPartialFailure
-					? { partial_failure: partialFailure }
-					: undefined,
+				metadata: hasCompletionMetadata ? completionMetadata : undefined,
 			});
 			lifecycle.transitionReviewRun(lifecycleRunId, "completed");
 		} catch (error) {

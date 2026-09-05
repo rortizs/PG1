@@ -34,16 +34,10 @@ class RagContextItem(BaseModel):
     similarity_score: float | None = None
 
 
-class ReviewRequest(BaseModel):
-    thesis_text: str
-    # llm-provider-admin (Work Unit 5): the API resolves the DB-active
-    # provider per review-run-trigger and forwards these three fields.
-    # All optional — omitting them keeps the pre-existing Claude+env-var
-    # behavior working unchanged (design decision #11, rollback/local-dev).
-    provider_name: str | None = None
+class ProviderInput(BaseModel):
+    provider_name: str
     api_key: str | None = None
     model_id: str | None = None
-    rag_context: list[RagContextItem] = Field(default_factory=list)
 
 
 class PageInput(BaseModel):
@@ -70,6 +64,13 @@ class SectionInput(BaseModel):
     metadata: dict = Field(default_factory=dict)
 
 
+class ReviewRequest(BaseModel):
+    pages: list[PageInput]
+    sections: list[SectionInput] = Field(default_factory=list)
+    judgment_provider: ProviderInput
+    triage_provider: ProviderInput | None = None
+
+
 class RulesRequest(BaseModel):
     pages: list[PageInput] = Field(default_factory=list)
     sections: list[SectionInput] = Field(default_factory=list)
@@ -80,7 +81,7 @@ def select_llm_provider(
 ) -> LLMProvider:
     """Selects (never fails here) the provider implementation for a review
     request. Any failure — DeepSeek/Groq not implemented, or an unknown
-    provider_name — is deferred to `.generate()` so it is always caught by
+    provider_name — is deferred to `.complete()` so it is always caught by
     `internal_review`'s try/except below, never left unhandled at FastAPI's
     dependency-resolution stage.
     """
@@ -100,11 +101,17 @@ def select_llm_provider(
     return UnimplementedProvider(provider_name or "unknown", api_key=api_key, model=model_id)
 
 
-def get_llm_provider(payload: ReviewRequest) -> LLMProvider:
+def get_judgment_provider(payload: ReviewRequest) -> LLMProvider:
     # Constructing the returned provider never makes a network call — the
-    # key/credential is only read/required inside `.generate()`, at actual
-    # call time (unchanged contract from before this pass).
-    return select_llm_provider(payload.provider_name, payload.api_key, payload.model_id)
+    # key/credential is only read/required inside `.complete()`, at actual
+    # call time. Work Unit 8 makes the judgment provider explicit in the
+    # structured request body; triage remains optional/no-op until Work Unit 10.
+    provider_config = payload.judgment_provider
+    return select_llm_provider(
+        provider_config.provider_name,
+        provider_config.api_key,
+        provider_config.model_id,
+    )
 
 
 def create_app() -> FastAPI:
@@ -140,13 +147,13 @@ def create_app() -> FastAPI:
 
     @app.post("/internal/review")
     def internal_review(
-        payload: ReviewRequest, provider: LLMProvider = Depends(get_llm_provider)
+        payload: ReviewRequest, provider: LLMProvider = Depends(get_judgment_provider)
     ):
         try:
-            finding = run_cag_review(
+            result = run_cag_review(
                 provider,
-                payload.thesis_text,
-                retrieved_context=[item.model_dump() for item in payload.rag_context],
+                pages=[page.model_dump() for page in payload.pages],
+                sections=[section.model_dump() for section in payload.sections],
             )
         except ProviderNotImplementedError as exc:
             raise HTTPException(
@@ -158,9 +165,12 @@ def create_app() -> FastAPI:
             ) from exc
         except CagReviewError as exc:
             raise HTTPException(status_code=502, detail=str(exc)) from exc
-        if finding is None:
-            return {"finding": None}
-        return {"finding": asdict(finding)}
+        findings = []
+        for finding in result.findings:
+            item = asdict(finding)
+            item.pop("chunk_index", None)
+            findings.append(item)
+        return {"findings": findings, "stats": result.stats}
 
     return app
 

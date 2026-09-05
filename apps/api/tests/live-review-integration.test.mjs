@@ -41,7 +41,7 @@ async function connectOrSkip(t) {
  * work end to end without needing Python or a live `ANTHROPIC_API_KEY`.
  */
 function startFakeWorker() {
-	let nextReview = { status: 200, body: { finding: null } };
+	let nextReview = { status: 200, body: { findings: [], stats: { chunks: 0 } } };
 	// precise-thesis-review-pipeline Work Unit 5: the deterministic rule
 	// engine's own independent route — defaults to "zero findings" so every
 	// pre-existing scenario below (which never sets this) behaves exactly as
@@ -62,9 +62,7 @@ function startFakeWorker() {
 						filename: "thesis.pdf",
 						content_type: "application/pdf",
 						page_count: 1,
-						pages: [
-							{ page_number: 1, section_title: "CAPÍTULO 1", text: "excerpt" },
-						],
+						pages: [{ page_number: 1, section_title: "CAPÍTULO 1", text: "excerpt" }],
 						full_text: "Live wiring integration test thesis excerpt.",
 						// document-structure-extraction (precise-thesis-review-pipeline
 						// PR1): a real section spanning the document's one page, so this
@@ -166,25 +164,49 @@ test("live HTTP review-run route drives the real pipeline end to end for genuine
 
 	// reviewer-authentication PR3a: every `handleApiRequest` call below now
 	// sits behind the deny-by-default session gate.
-	const session = await createAuthenticatedSession({ connectionString: databaseUrl });
+	const session = await createAuthenticatedSession({
+		connectionString: databaseUrl,
+	});
 	const authHeaders = session.headers;
 
 	try {
-		// --- Scenario 1: grounded finding -> completed, exactly one persisted finding ---
+		// --- Scenario 1: grounded findings -> completed, multiple persisted findings ---
 		worker.setNextReview(200, {
-			finding: {
-				finding_type: "rag_review",
-				severity: "medium",
-				confidence: 0.8,
-				title: "Missing APA citation",
-				explanation: "The excerpt paraphrases a source without citing it.",
-				recommendation: "Add an APA in-text citation.",
-				evidence_text: "Live wiring integration test thesis excerpt.",
-				page_number: 1,
-				section_title: null,
-				normative_source_ref: "lineamientos_ingenieria_sistemas.txt",
-				producer_type: "controlled_rag",
-				producer_id: "claude-fake",
+			findings: [
+				{
+					finding_type: "rag_review",
+					severity: "high",
+					confidence: 0.9,
+					title: "Missing APA citation",
+					explanation: "The excerpt paraphrases a source without citing it.",
+					recommendation: "Add an APA in-text citation.",
+					evidence_text: "Live wiring integration test thesis excerpt.",
+					page_number: 1,
+					section_index: 0,
+					normative_source_ref: "lineamientos_ingenieria_sistemas.txt",
+					producer_type: "controlled_rag",
+					producer_id: "claude-fake",
+				},
+				{
+					finding_type: "rag_review",
+					severity: "medium",
+					confidence: 0.82,
+					title: "Weak methodology wording",
+					explanation: "The excerpt needs a clearer methodological statement.",
+					recommendation: "Clarify the methodology statement.",
+					evidence_text: "Live wiring integration test thesis excerpt.",
+					page_number: 1,
+					section_index: 0,
+					normative_source_ref: "lineamientos_ingenieria_sistemas.txt",
+					producer_type: "controlled_rag",
+					producer_id: "claude-fake",
+				},
+			],
+			stats: {
+				chunks: 1,
+				dropped_low_confidence: 0,
+				dropped_ungrounded: 0,
+				dropped_duplicate: 0,
 			},
 		});
 
@@ -225,7 +247,7 @@ test("live HTTP review-run route drives the real pipeline end to end for genuine
 		});
 		assert.equal(statusRes.status, 200);
 		assert.equal(statusRes.body.status, "completed");
-		assert.equal(statusRes.body.summary.findings, 1);
+		assert.ok(statusRes.body.summary.findings >= 2);
 		// llm-provider-admin Work Unit 8: the completed run's GET response
 		// names which provider/model actually handled it (spec's "Backoffice
 		// Provider Visibility & Run Provenance" requirement) — the seeded
@@ -266,7 +288,7 @@ test("live HTTP review-run route drives the real pipeline end to end for genuine
 			path: `/api/v1/review-runs/${runId}/findings`,
 		});
 		assert.equal(findingsRes.status, 200);
-		assert.equal(findingsRes.body.items.length, 1);
+		assert.ok(findingsRes.body.items.length >= 2);
 		assert.equal(findingsRes.body.items[0].title, "Missing APA citation");
 		assert.equal(
 			findingsRes.body.items[0].evidence_text,
@@ -370,21 +392,23 @@ test("live HTTP review-run route drives the real pipeline end to end for genuine
 				"SELECT document_page_id, document_section_id FROM evidence_snippet WHERE review_run_id = $1",
 				[runDbId],
 			);
-			assert.equal(evidenceRows.rows.length, 1);
-			assert.ok(
-				evidenceRows.rows[0].document_page_id != null,
-				"finding evidence must carry a real, non-null document_page_id",
-			);
-			assert.ok(
-				evidenceRows.rows[0].document_section_id != null,
-				"finding evidence must carry a real, non-null document_section_id",
-			);
+			assert.ok(evidenceRows.rows.length >= 2);
+			for (const row of evidenceRows.rows) {
+				assert.ok(
+					row.document_page_id != null,
+					"each finding evidence must carry a real, non-null document_page_id",
+				);
+				assert.ok(
+					row.document_section_id != null,
+					"each finding evidence must carry a real, non-null document_section_id",
+				);
+			}
 		} finally {
 			await structureClient.end();
 		}
 
 		// --- Scenario 2: ungrounded -> completed, zero findings (never fabricated) ---
-		worker.setNextReview(200, { finding: null });
+		worker.setNextReview(200, { findings: [], stats: { chunks: 1 } });
 
 		const uploadRes2 = await handleApiRequest({
 			headers: authHeaders,

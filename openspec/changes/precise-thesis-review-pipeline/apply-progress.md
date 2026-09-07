@@ -352,3 +352,66 @@ None — every RED front (Work Unit 4's single `test_rules.py` run, Work Unit 5'
 ## Change Status
 
 **Work Unit 8 is complete and verified.** Current next action is Work Unit 9: role-based provider assignment. Real DeepSeek triage remains Work Unit 10.
+
+---
+
+# PR6 — Role-Based Provider Assignment (Work Unit 9)
+
+## Completed Implementation Tasks
+
+- [x] Work Unit 9 RED: Added tests before production changes for role-scoped migrations, repository role activation/resolution, admin contract validation, live active-provider forwarding, orchestrator dual-provenance handoff, and web pure view payloads. The RED runs failed for the expected missing behavior: web create payload omitted `role`; API contract returned `503`/old provider behavior, repository rows had no `role`, migration inserts failed because `role` did not exist, and orchestrator completion updates omitted triage provenance.
+- [x] Work Unit 9 GREEN: Added `0008_llm_provider_role.sql` and `0009_review_run_triage_provenance.sql`; updated provider config repository role masking/create/activate/getActiveProvider; updated admin contract create role validation/defaulting and PATCH role rejection; updated live review provider resolution to require `judgment` and pass optional `triage`; updated orchestrator to forward triage provenance fields to completion updates; updated the admin provider pure model/page for role list/create-only select and role-less update payloads.
+- [x] Work Unit 9 TRIANGULATE: Tests prove active `judgment` and active `triage` rows can coexist; activating a new `judgment` leaves active `triage` untouched and vice versa; migration DOWN fails loudly while both roles are active rather than choosing a survivor silently.
+- [x] Work Unit 9 REFACTOR: `admin-contract.mjs` now shares field-validator helpers for provider name, role, and non-empty strings across create/update paths; role update immutability is centralized in `validateRoleField`.
+
+## Files Changed (PR6 / WU9)
+
+| File | Action | What Was Done |
+|------|--------|---------------|
+| `apps/api/src/db/migrations/0008_llm_provider_role.sql` | Created | Adds `llm_provider_config.role`, validates `judgment`/`triage`, replaces the global one-active partial unique index with per-role active uniqueness, and documents the loud DOWN ambiguity. |
+| `apps/api/src/db/migrations/0009_review_run_triage_provenance.sql` | Created | Adds nullable `review_run.triage_provider_name` and `triage_model_id` columns. |
+| `apps/api/src/db/provider-config-repository.mjs` | Modified | Role appears in masked views; create accepts/defaults/validates role; activate deactivates only rows with the target role; `getActiveProvider(role='judgment')` resolves/decrypts per role and returns `null` when absent. |
+| `apps/api/src/admin-contract.mjs` | Modified | Create accepts optional `role` defaulting to `judgment`; unsupported roles return 422 before repository access; PATCH with any `role` field returns 422 because role is immutable. |
+| `apps/api/src/live-review-pipeline.mjs` | Modified | Resolves `judgment` as required and `triage` as optional on every run, passes both provider payloads to `/internal/review`, and returns role provenance to the orchestrator. |
+| `apps/api/src/jobs/review-orchestrator.mjs` | Modified | Completion update now carries optional `triageProviderName`/`triageModelId` alongside judgment provenance for repository implementations that persist the new fields. |
+| `apps/api/tests/llm-provider-config-migration.test.mjs` | Modified | Covers simultaneous active roles, duplicate active same-role rejection, nullable triage provenance columns, and loud ambiguous DOWN behavior. |
+| `apps/api/tests/provider-config-repository.test.mjs` | Created | Covers role-scoped `getActiveProvider`, same-role-only activation deactivation, cross-role activation preservation, and unsupported role rejection. |
+| `apps/api/tests/admin-contract.test.mjs` | Modified | Adds role validation/PATCH immutability cases and updates live CRUD/activation assertions for one active provider per role. |
+| `apps/api/tests/active-provider-resolution.test.mjs` | Modified | Verifies missing judgment fails explicitly, missing triage passes `null`, active triage is forwarded, and judgment switches do not unset active triage. |
+| `apps/api/tests/review-orchestrator.test.mjs` | Modified | Adds a fake-repository unit test proving triage provenance is handed to the completed-run update. |
+| `apps/web/src/app/admin/admin-providers-view.ts` | Modified | Adds provider role types and create payload role; update payload remains role-free. |
+| `apps/web/src/app/admin/admin-providers-page.ts` | Modified | Adds Role table column and create-only role select; edit/update continues to omit role. |
+| `apps/web/tests/admin-providers-view.test.mjs` | Modified | Covers role in rows/create payload and verifies update payloads never emit role. |
+| `openspec/changes/precise-thesis-review-pipeline/tasks.md` | Modified | Marked Work Unit 9 RED/GREEN/TRIANGULATE/REFACTOR/Verify/Rollback complete and corrected the migration filenames to the actual next numbers (`0008`/`0009`). |
+| `openspec/changes/precise-thesis-review-pipeline/apply-progress.md` | Modified | Added this WU9 progress section. |
+| `CHECKLIST.md` | Modified | Updated current next action to Work Unit 10 after WU9 completion. |
+
+## Test Commands Run (PR6 / WU9)
+
+| Phase | Command | Result |
+| --- | --- | --- |
+| WU9 RED (web pure view) | `pnpm --dir apps/web test -- tests/admin-providers-view.test.mjs` | Failed before production changes: `buildCreateProviderPayload includes role...` actual payload omitted `role: 'triage'`. |
+| WU9 RED (API focused) | `cd apps/api && node --import tsx --test --test-concurrency=1 tests/admin-contract.test.mjs tests/review-orchestrator.test.mjs tests/active-provider-resolution.test.mjs tests/provider-config-repository.test.mjs tests/llm-provider-config-migration.test.mjs` | Failed before production changes: old zero-active message, admin role cases returned `503` instead of 422, repository rows returned `role: undefined`, invalid role did not reject, migration insert failed because `role` column did not exist, and orchestrator omitted triage provenance. |
+| WU9 GREEN (web suite through package runner) | `pnpm --dir apps/web test -- tests/admin-providers-view.test.mjs` | **70 pass / 0 fail**. |
+| WU9 GREEN (migration/repository focused) | `cd apps/api && node --import tsx --test --test-concurrency=1 tests/llm-provider-config-migration.test.mjs tests/provider-config-repository.test.mjs` | **3 pass / 0 fail**. Includes migration up/down cycle and the ambiguous DOWN failure assertion. |
+| WU9 GREEN (API focused) | `cd apps/api && node --import tsx --test --test-concurrency=1 tests/admin-contract.test.mjs tests/review-orchestrator.test.mjs tests/active-provider-resolution.test.mjs tests/provider-config-repository.test.mjs tests/llm-provider-config-migration.test.mjs` | **26 pass / 0 fail**. |
+
+## Scope Notes / Follow-ups (PR6 / WU9)
+
+- Real DeepSeek triage behavior remains intentionally out of scope for Work Unit 10. WU9 only resolves and forwards the optional triage provider payload; the worker still treats triage as optional/no-op until WU10.
+- WU9 correction: `apps/api/src/db/review-repository.mjs` now persists `triageProviderName`/`triageModelId` into nullable `review_run.triage_provider_name`/`triage_model_id` through `updateReviewRunStatus`; focused API verification covers repository persistence, orchestrator forwarding, and admin role-null validation.
+
+## Remaining Tasks
+
+- [ ] Work Unit 10 — Real `DeepSeekProvider` wired as `triage` (PR7)
+
+## Change Status
+
+Work Unit 9 implementation and focused verification are complete. Broad final package verification is recorded in the parent handoff for this apply pass.
+
+## Final Verification Evidence (PR6 / WU9)
+
+- `pnpm --dir apps/api test && pnpm --dir apps/web test` without `DATABASE_URL` was attempted first: API reached **155 pass / 1 fail**; the only failure was the pre-existing/environment-scoped `tests/smoke.test.mjs` expectation (`503 !== 401`) when the session guard cannot resolve the reviewer repository without a database URL. This matches the WU8 environment note and is not a WU9 regression.
+- `DATABASE_URL=postgres://pg1:pg1@localhost:5432/pg1 pnpm --dir apps/api test && pnpm --dir apps/web test` passed: API **156 pass / 0 fail**, web **70 pass / 0 fail**.
+- Explicit migration CLI cycle passed against local Postgres: `cd apps/api && DATABASE_URL=postgres://pg1:pg1@localhost:5432/pg1 node --import tsx src/db/migrate.mjs up && DATABASE_URL=postgres://pg1:pg1@localhost:5432/pg1 node --import tsx src/db/migrate.mjs down` printed both `up completed` and `down completed`.
+- WU9 correction focused verification passed: `cd apps/api && node --import tsx --test --test-concurrency=1 tests/review-repository.test.mjs tests/admin-contract.test.mjs tests/review-orchestrator.test.mjs` reported **29 pass / 0 fail** after RED failures for missing triage persistence and explicit-null role handling.

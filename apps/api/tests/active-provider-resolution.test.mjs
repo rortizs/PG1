@@ -153,7 +153,7 @@ test("active-provider resolution: zero-active fails explicitly, switching provid
 		assert.equal(runZeroActive.body.status, "failed");
 		assert.match(
 			runZeroActive.body.error_summary,
-			/no active LLM provider configured/i,
+			/no active judgment provider configured/i,
 		);
 		assert.equal(
 			worker.getLastReviewBody(),
@@ -167,6 +167,7 @@ test("active-provider resolution: zero-active fails explicitly, switching provid
 		});
 		const providerOne = await repository.create({
 			providerName: "claude",
+			role: "judgment",
 			modelId: "claude-model-one",
 			apiKey: "sk-ant-provider-one-secret",
 		});
@@ -181,9 +182,9 @@ test("active-provider resolution: zero-active fails explicitly, switching provid
 		assert.deepEqual(worker.getLastReviewBody(), {
 			pages: [
 				{
-					page_number: null,
+					page_number: 1,
 					section_title: null,
-					text: "Active-provider-resolution test thesis excerpt.",
+					text: "excerpt",
 				},
 			],
 			sections: [],
@@ -195,9 +196,46 @@ test("active-provider resolution: zero-active fails explicitly, switching provid
 			triage_provider: null,
 		});
 
+		// --- Scenario 2b: activating triage leaves judgment active and forwards both roles ---
+		const triageProvider = await repository.create({
+			providerName: "deepseek",
+			role: "triage",
+			modelId: "deepseek-chat",
+			apiKey: "sk-deepseek-triage-secret",
+		});
+		await repository.activate(triageProvider.id);
+
+		const runWithTriage = await triggerRun({
+			handleApiRequest,
+			filename: "provider-one-plus-triage.pdf",
+			headers,
+		});
+		assert.equal(runWithTriage.body.status, "completed");
+		assert.deepEqual(worker.getLastReviewBody(), {
+			pages: [
+				{
+					page_number: 1,
+					section_title: null,
+					text: "excerpt",
+				},
+			],
+			sections: [],
+			judgment_provider: {
+				provider_name: "claude",
+				api_key: "sk-ant-provider-one-secret",
+				model_id: "claude-model-one",
+			},
+			triage_provider: {
+				provider_name: "deepseek",
+				api_key: "sk-deepseek-triage-secret",
+				model_id: "deepseek-chat",
+			},
+		});
+
 		// --- Scenario 3: switch active provider mid-session, no restart -> next run re-resolves fresh ---
 		const providerTwo = await repository.create({
 			providerName: "claude",
+			role: "judgment",
 			modelId: "claude-model-two",
 			apiKey: "sk-ant-provider-two-secret",
 		});
@@ -212,9 +250,9 @@ test("active-provider resolution: zero-active fails explicitly, switching provid
 		assert.deepEqual(worker.getLastReviewBody(), {
 			pages: [
 				{
-					page_number: null,
+					page_number: 1,
 					section_title: null,
-					text: "Active-provider-resolution test thesis excerpt.",
+					text: "excerpt",
 				},
 			],
 			sections: [],
@@ -223,7 +261,11 @@ test("active-provider resolution: zero-active fails explicitly, switching provid
 				api_key: "sk-ant-provider-two-secret",
 				model_id: "claude-model-two",
 			},
-			triage_provider: null,
+			triage_provider: {
+				provider_name: "deepseek",
+				api_key: "sk-deepseek-triage-secret",
+				model_id: "deepseek-chat",
+			},
 		});
 
 		// --- Scenario 4: downstream worker failure while provider two is active -> failed, no key leak ---
@@ -247,6 +289,11 @@ test("active-provider resolution: zero-active fails explicitly, switching provid
 		const { default: pg } = await import("pg");
 		const cleanupClient = new pg.Client({ connectionString: databaseUrl });
 		await cleanupClient.connect();
+		await cleanupClient
+			.query(
+				"UPDATE llm_provider_config SET is_active = false WHERE role = 'triage'",
+			)
+			.catch(() => {});
 		await migrate.migrateDown({ client: cleanupClient }).catch(() => {});
 		await cleanupClient.end();
 	}

@@ -86,9 +86,7 @@ function embeddingModel(embeddingProvider) {
 
 function toVectorLiteral(vector) {
 	if (!Array.isArray(vector) || vector.length !== 1536) {
-		throw new Error(
-			"Embedding provider must return a 1536-dimensional vector.",
-		);
+		throw new Error("Embedding provider must return a 1536-dimensional vector.");
 	}
 	return `[${vector
 		.map((value) => {
@@ -149,16 +147,8 @@ function toReviewBoardCard(row) {
 		id: toPublicBoardCardId(row.workflow_item_id ?? row.thesis_document_id),
 		thesis_document_id: `thesis_document_${toId(row.thesis_document_id)}`,
 		current_review_run_id: toPublicReviewRunId(row.review_run_id),
-		student_name: metadataValue(
-			metadata,
-			"student_name",
-			row.original_filename,
-		),
-		thesis_title: metadataValue(
-			metadata,
-			"thesis_title",
-			row.original_filename,
-		),
+		student_name: metadataValue(metadata, "student_name", row.original_filename),
+		thesis_title: metadataValue(metadata, "thesis_title", row.original_filename),
 		priority: row.priority ?? "normal",
 		approval_state: approvalState,
 		board_state: projectBoardState({ approvalState, reviewRunStatus }),
@@ -191,9 +181,7 @@ export function createReviewRepository({ client, connectionString } = {}) {
 		} = {}) {
 			return run(async (pgClient) => {
 				const corpusFiles = await readdir(corpusDir);
-				const files = corpusFiles
-					.filter((name) => name.endsWith(".txt"))
-					.sort();
+				const files = corpusFiles.filter((name) => name.endsWith(".txt")).sort();
 				const idByFile = {};
 				for (const file of files) {
 					// pi-lens-ignore: ast-grep:no-sql-in-code-js
@@ -475,6 +463,8 @@ export function createReviewRepository({ client, connectionString } = {}) {
 				errorSummary,
 				llmProviderName,
 				llmModelId,
+				triageProviderName,
+				triageModelId,
 				metadata,
 			} = {},
 		) {
@@ -489,7 +479,9 @@ export function createReviewRepository({ client, connectionString } = {}) {
 					   error_summary = COALESCE($6, error_summary),
 					   llm_provider_name = COALESCE($7, llm_provider_name),
 					   llm_model_id = COALESCE($8, llm_model_id),
-					   metadata = COALESCE($9, metadata)
+					   triage_provider_name = COALESCE($9, triage_provider_name),
+					   triage_model_id = COALESCE($10, triage_model_id),
+					   metadata = COALESCE($11, metadata)
 					 WHERE id = $1`,
 					[
 						reviewRunId,
@@ -500,6 +492,8 @@ export function createReviewRepository({ client, connectionString } = {}) {
 						errorSummary ?? null,
 						llmProviderName ?? null,
 						llmModelId ?? null,
+						triageProviderName ?? null,
+						triageModelId ?? null,
 						metadata ? JSON.stringify(metadata) : null,
 					],
 				);
@@ -580,7 +574,10 @@ export function createReviewRepository({ client, connectionString } = {}) {
 		 * is dead once a session is mandatory — both columns are written
 		 * unconditionally.
 		 */
-		async approveReviewBoardCard(boardCardId, { reviewerId = null, reviewerName = null } = {}) {
+		async approveReviewBoardCard(
+			boardCardId,
+			{ reviewerId = null, reviewerName = null } = {},
+		) {
 			return run(async (pgClient) => {
 				// pi-lens-ignore: ast-grep:no-sql-in-code-js
 				await pgClient.query(
@@ -722,12 +719,7 @@ export function createReviewRepository({ client, connectionString } = {}) {
 		 * e.g. `"filler_words.lexicon_match"`) and `metadata` defaults to `{}`,
 		 * both columns already existing on `finding` since `0001_schema_baseline.sql`.
 		 */
-		async persistFinding({
-			reviewRunId,
-			normativeSourceId,
-			finding,
-			evidence,
-		}) {
+		async persistFinding({ reviewRunId, normativeSourceId, finding, evidence }) {
 			if (!Array.isArray(evidence) || evidence.length === 0) {
 				throw new EvidenceRequiredError(
 					"Cannot persist a finding with zero evidence rows.",
@@ -849,7 +841,14 @@ export function createReviewRepository({ client, connectionString } = {}) {
 					`INSERT INTO audit_event
 					   (actor_user_id, entity_type, entity_id, event_type, message, metadata)
 					 VALUES ($1,$2,$3,$4,$5,$6)`,
-					[actorUserId, entityType, entityId, eventType, message, JSON.stringify(metadata)],
+					[
+						actorUserId,
+						entityType,
+						entityId,
+						eventType,
+						message,
+						JSON.stringify(metadata),
+					],
 				);
 			});
 		},

@@ -13,6 +13,7 @@ import { EncryptionKeyError } from "./security/provider-key-cipher.mjs";
  */
 
 const SUPPORTED_PROVIDER_NAMES = ["claude", "deepseek", "groq"];
+const SUPPORTED_PROVIDER_ROLES = ["judgment", "triage"];
 
 const ROUTES = [
 	["GET", "/api/v1/admin/llm-providers"],
@@ -164,6 +165,23 @@ function validateProviderNameField(value, { required }, issues) {
 	}
 }
 
+function validateRoleField(value, { required, immutable = false }, issues) {
+	if (value === undefined && !required) return;
+	if (immutable && value !== undefined) {
+		issues.push({
+			field: "role",
+			message: "Role is immutable after provider creation.",
+		});
+		return;
+	}
+	if (!SUPPORTED_PROVIDER_ROLES.includes(value)) {
+		issues.push({
+			field: "role",
+			message: `Must be one of: ${SUPPORTED_PROVIDER_ROLES.join(", ")}.`,
+		});
+	}
+}
+
 function validateNonEmptyStringField(field, value, { required }, issues) {
 	if (value === undefined && !required) return;
 	if (typeof value !== "string" || value.trim() === "") {
@@ -184,11 +202,24 @@ function validationErrorOrValue(issues, value) {
 
 function validateCreatePayload(body) {
 	const issues = [];
+	const role = body?.role === undefined ? "judgment" : body?.role;
 	validateProviderNameField(body?.provider_name, { required: true }, issues);
-	validateNonEmptyStringField("model_id", body?.model_id, { required: true }, issues);
-	validateNonEmptyStringField("api_key", body?.api_key, { required: true }, issues);
+	validateRoleField(role, { required: true }, issues);
+	validateNonEmptyStringField(
+		"model_id",
+		body?.model_id,
+		{ required: true },
+		issues,
+	);
+	validateNonEmptyStringField(
+		"api_key",
+		body?.api_key,
+		{ required: true },
+		issues,
+	);
 	return validationErrorOrValue(issues, {
 		providerName: body?.provider_name,
+		role,
 		modelId: body?.model_id,
 		apiKey: body?.api_key,
 		metadata: body?.metadata ?? {},
@@ -198,8 +229,19 @@ function validateCreatePayload(body) {
 function validateUpdatePayload(body) {
 	const issues = [];
 	validateProviderNameField(body?.provider_name, { required: false }, issues);
-	validateNonEmptyStringField("model_id", body?.model_id, { required: false }, issues);
-	validateNonEmptyStringField("api_key", body?.api_key, { required: false }, issues);
+	validateRoleField(body?.role, { required: false, immutable: true }, issues);
+	validateNonEmptyStringField(
+		"model_id",
+		body?.model_id,
+		{ required: false },
+		issues,
+	);
+	validateNonEmptyStringField(
+		"api_key",
+		body?.api_key,
+		{ required: false },
+		issues,
+	);
 	return validationErrorOrValue(issues, {
 		providerName: body?.provider_name,
 		modelId: body?.model_id,

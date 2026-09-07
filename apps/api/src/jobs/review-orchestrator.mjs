@@ -402,16 +402,14 @@ export function createReviewOrchestrationProcessor({
 
 			await repository.updateReviewRunStatus(reviewRunDbId, {
 				completedAt: new Date(),
-				// llm-provider-admin Work Unit 8: `runCagReview`'s result MAY carry
-				// which provider actually produced it (`live-review-pipeline.mjs`'s
-				// `runCagReviewWithActiveProvider` augments its result with these
-				// two fields) — persisted onto the completed review_run so the
-				// admin/results views can show provenance. `undefined` (a
-				// `runCagReview` implementation that doesn't know/report this,
-				// e.g. every existing test's fake worker) safely no-ops via
-				// `updateReviewRunStatus`'s own `COALESCE`.
+				// Role-based provider assignment: `runCagReview` may carry which
+				// DB-resolved judgment and optional triage providers participated in
+				// the run. Unknown/undefined fields safely no-op in repository
+				// implementations that do not persist the newer provenance yet.
 				llmProviderName: reviewResult?.providerName ?? null,
 				llmModelId: reviewResult?.modelId ?? null,
+				triageProviderName: reviewResult?.triageProviderName ?? null,
+				triageModelId: reviewResult?.triageModelId ?? null,
 				// design.md D3: "LLM path fails but rules succeeded (or vice versa)
 				// -> status='completed', error_summary=<failed path message>,
 				// metadata.partial_failure={llm|rules: message}."

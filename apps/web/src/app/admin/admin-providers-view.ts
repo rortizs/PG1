@@ -11,33 +11,36 @@
  * request errors.
  */
 
+export type AdminProviderRole = "judgment" | "triage";
+
 export interface AdminProviderRow {
-  id: number;
-  type: string;
-  provider_name: string;
-  model_id: string;
-  api_key_last_four: string;
-  is_active: boolean;
-  metadata: Record<string, unknown>;
-  created_at: string;
-  updated_at: string;
+ id: number;
+ type: string;
+ provider_name: string;
+ role: AdminProviderRole;
+ model_id: string;
+ api_key_last_four: string;
+ is_active: boolean;
+ metadata: Record<string, unknown>;
+ created_at: string;
+ updated_at: string;
 }
 
 export type AdminProvidersViewModel =
-  | { kind: 'loading' }
-  | { kind: 'error'; message: string }
-  | { kind: 'list'; items: AdminProviderRow[] };
+ | { kind: "loading" }
+ | { kind: "error"; message: string }
+ | { kind: "list"; items: AdminProviderRow[] };
 
 export function buildAdminProvidersViewModel({
-  providers,
-  loadError,
+ providers,
+ loadError,
 }: {
-  providers: AdminProviderRow[] | null;
-  loadError: string | null;
+ providers: AdminProviderRow[] | null;
+ loadError: string | null;
 }): AdminProvidersViewModel {
-  if (loadError) return { kind: 'error', message: loadError };
-  if (providers === null) return { kind: 'loading' };
-  return { kind: 'list', items: providers };
+ if (loadError) return { kind: "error", message: loadError };
+ if (providers === null) return { kind: "loading" };
+ return { kind: "list", items: providers };
 }
 
 /**
@@ -46,36 +49,41 @@ export function buildAdminProvidersViewModel({
  * place a stored key's characters are ever rendered, and it can only ever
  * render the last four.
  */
-export function maskedKeyLabel(row: Pick<AdminProviderRow, 'api_key_last_four'>): string {
-  return `••••${row.api_key_last_four}`;
+export function maskedKeyLabel(
+ row: Pick<AdminProviderRow, "api_key_last_four">,
+): string {
+ return `••••${row.api_key_last_four}`;
 }
 
 export interface AdminProviderFormValue {
-  providerName: string;
-  modelId: string;
-  apiKey: string;
+ providerName: string;
+ role: AdminProviderRole;
+ modelId: string;
+ apiKey: string;
 }
 
 export interface CreateProviderPayload {
-  provider_name: string;
-  model_id: string;
-  api_key: string;
+ provider_name: string;
+ role: AdminProviderRole;
+ model_id: string;
+ api_key: string;
 }
 
 /** Create always requires a real key — the field is required on this form. */
 export function buildCreateProviderPayload(
-  form: AdminProviderFormValue,
+ form: AdminProviderFormValue,
 ): CreateProviderPayload {
-  return {
-    provider_name: form.providerName,
-    model_id: form.modelId,
-    api_key: form.apiKey,
-  };
+ return {
+  provider_name: form.providerName,
+  role: form.role,
+  model_id: form.modelId,
+  api_key: form.apiKey,
+ };
 }
 
 export interface UpdateProviderPayload {
-  model_id?: string;
-  api_key?: string;
+ model_id?: string;
+ api_key?: string;
 }
 
 /**
@@ -86,33 +94,33 @@ export interface UpdateProviderPayload {
  * could accidentally overwrite the stored key.
  */
 export function buildUpdateProviderPayload(form: {
-  modelId: string;
-  apiKey: string;
+ modelId: string;
+ apiKey: string;
 }): UpdateProviderPayload {
-  const payload: UpdateProviderPayload = { model_id: form.modelId };
-  if (form.apiKey.trim() !== '') {
-    payload.api_key = form.apiKey;
-  }
-  return payload;
+ const payload: UpdateProviderPayload = { model_id: form.modelId };
+ if (form.apiKey.trim() !== "") {
+  payload.api_key = form.apiKey;
+ }
+ return payload;
 }
 
-const ADMIN_PROVIDERS_BASE_PATH = '/api/v1/admin/llm-providers';
+const ADMIN_PROVIDERS_BASE_PATH = "/api/v1/admin/llm-providers";
 
 export function buildProviderPath(id: number): string {
-  return `${ADMIN_PROVIDERS_BASE_PATH}/${encodeURIComponent(String(id))}`;
+ return `${ADMIN_PROVIDERS_BASE_PATH}/${encodeURIComponent(String(id))}`;
 }
 
 export function buildActivatePath(id: number): string {
-  return `${buildProviderPath(id)}/activate`;
+ return `${buildProviderPath(id)}/activate`;
 }
 
 interface HttpErrorLike {
-  status?: number;
-  error?: { message?: string };
+ status?: number;
+ error?: { message?: string };
 }
 
 function isHttpErrorLike(err: unknown): err is HttpErrorLike {
-  return typeof err === 'object' && err !== null && 'status' in err;
+ return typeof err === "object" && err !== null && "status" in err;
 }
 
 /**
@@ -123,8 +131,8 @@ function isHttpErrorLike(err: unknown): err is HttpErrorLike {
  * can still surface a message for the brief moment before that redirect.
  */
 export function isAdminAuthError(err: unknown): boolean {
-  if (!isHttpErrorLike(err)) return false;
-  return err.status === 401;
+ if (!isHttpErrorLike(err)) return false;
+ return err.status === 401;
 }
 
 /**
@@ -134,12 +142,12 @@ export function isAdminAuthError(err: unknown): boolean {
  * fallback for anything else.
  */
 export function extractAdminErrorMessage(err: unknown): string {
-  if (isHttpErrorLike(err)) {
-    if (err.status === 401) {
-      return 'Your session has expired. Please sign in again.';
-    }
-    if (err.error?.message) return err.error.message;
+ if (isHttpErrorLike(err)) {
+  if (err.status === 401) {
+   return "Your session has expired. Please sign in again.";
   }
-  if (err instanceof Error && err.message) return err.message;
-  return 'The admin request failed. Please try again.';
+  if (err.error?.message) return err.error.message;
+ }
+ if (err instanceof Error && err.message) return err.message;
+ return "The admin request failed. Please try again.";
 }

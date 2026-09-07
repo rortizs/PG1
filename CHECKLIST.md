@@ -6,12 +6,14 @@ Last updated: 2026-09-04
 
 ## Current next action
 
-- [ ] Continue `precise-thesis-review-pipeline` Work Unit 9: role-based provider assignment.
-  - WU8 implementation and verification are complete.
-  - Keep WU9 scoped to provider-role migrations, repository/API wiring, and admin UI role selection only; real DeepSeek triage remains WU10.
+- [ ] Continue `precise-thesis-review-pipeline` Work Unit 10: real `DeepSeekProvider` wired as `triage`.
+  - WU9 implementation and focused verification are complete.
+  - Keep WU10 scoped to the real DeepSeek triage provider and worker triage decision path.
 
 ## Recently completed
 
+- [x] Complete `precise-thesis-review-pipeline` Work Unit 9: role-based provider assignment.
+  - Evidence: provider role migrations `0008`/`0009`, per-role active provider repository/admin/API/UI wiring, optional triage forwarding plus review-run triage provenance persistence correction, focused correction API **29 pass / 0 fail**, web **70 pass / 0 fail**.
 - [x] Complete `precise-thesis-review-pipeline` Work Unit 8: chunked multi-finding review loop + `/internal/review` contract.
   - Evidence: chunk planning, multi-finding filtering/dedup/stats, structured worker request/response, API persistence of every returned finding, worker **114 tests OK**, API **151 pass / 0 fail** with `DATABASE_URL=postgres://pg1:pg1@localhost:5432/pg1`.
 - [x] Complete `precise-thesis-review-pipeline` Work Unit 7: cache-aware provider protocol.
@@ -33,7 +35,7 @@ Last updated: 2026-09-04
 
 | Change | Status | Next |
 | --- | --- | --- |
-| `precise-thesis-review-pipeline` | Active; Work Units 1–8 complete, 9–10 pending | Continue Work Unit 9: role-based provider assignment |
+| `precise-thesis-review-pipeline` | Active; Work Units 1–9 complete, 10 pending | Continue Work Unit 10: real DeepSeek triage provider |
 | `mvp-academic-review-core` | Active legacy backlog; Work Units 1–5 complete, 6–16 pending | Reconcile overlap before using it as the driving backlog |
 
 ## Root legacy checklist reconciliation

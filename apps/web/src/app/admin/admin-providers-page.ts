@@ -1,16 +1,24 @@
-import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
-import { FormControl, FormGroup, ReactiveFormsModule } from '@angular/forms';
-import { AdminApiClient } from './admin-api-client';
 import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  inject,
+  signal,
+} from "@angular/core";
+import { FormControl, FormGroup, ReactiveFormsModule } from "@angular/forms";
+import { AdminApiClient } from "./admin-api-client";
+import {
+  AdminProviderRole,
   AdminProviderRow,
   buildAdminProvidersViewModel,
   buildCreateProviderPayload,
   buildUpdateProviderPayload,
   extractAdminErrorMessage,
   maskedKeyLabel,
-} from './admin-providers-view';
+} from "./admin-providers-view";
 
-const SUPPORTED_PROVIDER_NAMES = ['claude', 'deepseek', 'groq'] as const;
+const SUPPORTED_PROVIDER_NAMES = ["claude", "deepseek", "groq"] as const;
+const SUPPORTED_PROVIDER_ROLES = ["judgment", "triage"] as const;
 
 /**
  * Admin backoffice page for `llm_provider_config`: list (masked keys, active
@@ -24,7 +32,7 @@ const SUPPORTED_PROVIDER_NAMES = ['claude', 'deepseek', 'groq'] as const;
  * page, per the confirmed reviewer-authentication design decision D6.
  */
 @Component({
-  selector: 'app-admin-providers-page',
+  selector: "app-admin-providers-page",
   imports: [ReactiveFormsModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -46,6 +54,7 @@ const SUPPORTED_PROVIDER_NAMES = ['claude', 'deepseek', 'groq'] as const;
           <thead>
             <tr>
               <th>Provider</th>
+              <th>Role</th>
               <th>Model</th>
               <th>Key</th>
               <th>Status</th>
@@ -57,6 +66,7 @@ const SUPPORTED_PROVIDER_NAMES = ['claude', 'deepseek', 'groq'] as const;
             @for (row of listItems(); track row.id) {
               <tr>
                 <td>{{ row.provider_name }}</td>
+                <td>{{ row.role }}</td>
                 <td>{{ row.model_id }}</td>
                 <td>{{ maskKey(row) }}</td>
                 <td>
@@ -86,21 +96,32 @@ const SUPPORTED_PROVIDER_NAMES = ['claude', 'deepseek', 'groq'] as const;
     }
 
     <h2>{{ editingId() === null ? 'Add provider' : 'Edit provider' }}</h2>
-    <form [formGroup]="form" (submit)="onSubmit($event)">
-      <label>
-        Provider
-        <select formControlName="providerName">
-          @for (name of providerNames; track name) {
-            <option [value]="name">{{ name }}</option>
-          }
-        </select>
-        @if (editingId() !== null) {
-          <small>Provider type cannot be changed on an existing row — activate a new row instead.</small>
-        }
-      </label>
+        <form [formGroup]="form" (submit)="onSubmit($event)">
+          <label>
+            Provider
+            <select formControlName="providerName">
+              @for (name of providerNames; track name) {
+                <option [value]="name">{{ name }}</option>
+              }
+            </select>
+            @if (editingId() !== null) {
+              <small>Provider type cannot be changed on an existing row — activate a new row instead.</small>
+            }
+          </label>
 
-      <label>
-        Model id
+          @if (editingId() === null) {
+            <label>
+              Role
+              <select formControlName="role">
+                @for (role of providerRoles; track role) {
+                  <option [value]="role">{{ role }}</option>
+                }
+              </select>
+            </label>
+          }
+
+          <label>
+            Model id
         <input type="text" formControlName="modelId" />
       </label>
 
@@ -131,7 +152,8 @@ const SUPPORTED_PROVIDER_NAMES = ['claude', 'deepseek', 'groq'] as const;
       <p role="alert">{{ message }}</p>
     }
   `,
-  styles: [`
+  styles: [
+    `
     :host {
       display: block;
       max-width: 880px;
@@ -178,26 +200,26 @@ const SUPPORTED_PROVIDER_NAMES = ['claude', 'deepseek', 'groq'] as const;
       color: var(--pg1-color-outline);
     }
 
-    /* Edit is the 5th table column, Activate the 6th — targeted
+    /* Edit is the 6th table column, Activate the 7th — targeted
        structurally so Edit reads as a secondary (outline) action and
        Activate as the row's primary action, without adding a class. */
-    td:nth-child(5) button {
+    td:nth-child(6) button {
       background: transparent;
       color: var(--pg1-color-ink);
       border: 1px solid var(--pg1-color-ink);
     }
 
-    td:nth-child(5) button:hover {
+    td:nth-child(6) button:hover {
       background: var(--pg1-ink-wash-05);
     }
 
-    td:nth-child(6) button {
+    td:nth-child(7) button {
       background: var(--pg1-color-ink);
       color: var(--pg1-color-on-primary);
       border: 1.5px solid var(--pg1-color-ink);
     }
 
-    td:nth-child(6) button:hover:not(:disabled) {
+    td:nth-child(7) button:hover:not(:disabled) {
       background: var(--pg1-color-academic-blue);
       border-color: var(--pg1-color-academic-blue);
     }
@@ -239,12 +261,14 @@ const SUPPORTED_PROVIDER_NAMES = ['claude', 'deepseek', 'groq'] as const;
     form button[type='button']:hover {
       background: var(--pg1-ink-wash-05);
     }
-  `],
+  `,
+  ],
 })
 export class AdminProvidersPage {
   private readonly api = inject(AdminApiClient);
 
   protected readonly providerNames = SUPPORTED_PROVIDER_NAMES;
+  protected readonly providerRoles = SUPPORTED_PROVIDER_ROLES;
 
   private readonly providers = signal<AdminProviderRow[] | null>(null);
   protected readonly loadError = signal<string | null>(null);
@@ -253,19 +277,26 @@ export class AdminProvidersPage {
   protected readonly editingId = signal<number | null>(null);
 
   protected readonly view = computed(() =>
-    buildAdminProvidersViewModel({ providers: this.providers(), loadError: this.loadError() }),
+    buildAdminProvidersViewModel({
+      providers: this.providers(),
+      loadError: this.loadError(),
+    }),
   );
   protected readonly listItems = computed(() => {
     const current = this.view();
-    return current.kind === 'list' ? current.items : [];
+    return current.kind === "list" ? current.items : [];
   });
 
   protected readonly form = new FormGroup({
-    providerName: new FormControl<(typeof SUPPORTED_PROVIDER_NAMES)[number]>('claude', {
-      nonNullable: true,
-    }),
-    modelId: new FormControl('', { nonNullable: true }),
-    apiKey: new FormControl('', { nonNullable: true }),
+    providerName: new FormControl<(typeof SUPPORTED_PROVIDER_NAMES)[number]>(
+      "claude",
+      {
+        nonNullable: true,
+      },
+    ),
+    role: new FormControl<AdminProviderRole>("judgment", { nonNullable: true }),
+    modelId: new FormControl("", { nonNullable: true }),
+    apiKey: new FormControl("", { nonNullable: true }),
   });
 
   constructor() {
@@ -286,7 +317,10 @@ export class AdminProvidersPage {
     const request =
       editingId === null
         ? this.api.createProvider(buildCreateProviderPayload(formValue))
-        : this.api.updateProvider(editingId, buildUpdateProviderPayload(formValue));
+        : this.api.updateProvider(
+            editingId,
+            buildUpdateProviderPayload(formValue),
+          );
 
     request.subscribe({
       next: () => {
@@ -302,7 +336,12 @@ export class AdminProvidersPage {
     this.editingId.set(row.id);
     // The raw API key field is write-only — never pre-filled with the
     // stored (already-masked-server-side) value.
-    this.form.setValue({ providerName: this.asProviderName(row.provider_name), modelId: row.model_id, apiKey: '' });
+    this.form.setValue({
+      providerName: this.asProviderName(row.provider_name),
+      role: row.role,
+      modelId: row.model_id,
+      apiKey: "",
+    });
   }
 
   protected onCancelEdit(): void {
@@ -323,7 +362,8 @@ export class AdminProvidersPage {
         this.providers.set(items);
         this.loadError.set(null);
       },
-      error: (err: unknown) => this.loadError.set(extractAdminErrorMessage(err)),
+      error: (err: unknown) =>
+        this.loadError.set(extractAdminErrorMessage(err)),
     });
   }
 
@@ -334,12 +374,21 @@ export class AdminProvidersPage {
 
   private resetForm(): void {
     this.editingId.set(null);
-    this.form.reset({ providerName: 'claude', modelId: '', apiKey: '' });
+    this.form.reset({
+      providerName: "claude",
+      role: "judgment",
+      modelId: "",
+      apiKey: "",
+    });
   }
 
-  private asProviderName(value: string): (typeof SUPPORTED_PROVIDER_NAMES)[number] {
-    return SUPPORTED_PROVIDER_NAMES.includes(value as (typeof SUPPORTED_PROVIDER_NAMES)[number])
+  private asProviderName(
+    value: string,
+  ): (typeof SUPPORTED_PROVIDER_NAMES)[number] {
+    return SUPPORTED_PROVIDER_NAMES.includes(
+      value as (typeof SUPPORTED_PROVIDER_NAMES)[number],
+    )
       ? (value as (typeof SUPPORTED_PROVIDER_NAMES)[number])
-      : 'claude';
+      : "claude";
   }
 }

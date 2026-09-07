@@ -599,6 +599,55 @@ test("deterministic rule engine independence: both paths failing still transitio
 	assert.match(failedJobs[0].details.message, /Claude API timeout/);
 });
 
+test("orchestrator passes judgment and triage provenance from CAG result into the completed run update", async () => {
+	const { createReviewOrchestrationProcessor } = await import(
+		"../src/jobs/review-orchestrator.mjs"
+	);
+
+	const statusUpdates = [];
+	const repository = {
+		insertReviewRun: async () => 107,
+		updateReviewRunStatus: async (_id, args) => {
+			statusUpdates.push(args);
+		},
+		insertDocumentPages: async () => ({ ids: [225], idByPageNumber: { 1: 225 } }),
+		insertDocumentSections: async () => ({ ids: [], idByIndex: {} }),
+		persistFinding: async () => ({ findingId: 415, evidenceIds: [515] }),
+	};
+	const lifecycle = { transitionReviewRun: () => {}, markJobFailed: () => {} };
+
+	const processor = createReviewOrchestrationProcessor({
+		repository,
+		lifecycle,
+		resolveThesisDocumentDbId: async () => 1,
+		extractThesisText: async () => ({
+			fullText: "Full extracted text.",
+			pages: [{ page_number: 1, section_title: null, text: "Page one." }],
+			sections: [],
+			content_type: "application/pdf",
+		}),
+		runRules: async () => ({ findings: [] }),
+		runCagReview: async () => ({
+			findings: [],
+			stats: { chunks: 1 },
+			providerName: "claude",
+			modelId: "claude-sonnet-4",
+			triageProviderName: "deepseek",
+			triageModelId: "deepseek-chat",
+		}),
+		resolveNormativeSourceId: async () => null,
+	});
+
+	await processor({ review_run_id: "run_7", thesis_document_id: "doc_7" });
+
+	const completionUpdate = statusUpdates.find((u) => u.completedAt);
+	assert.ok(completionUpdate, "expected a completedAt status update");
+	assert.equal(completionUpdate.llmProviderName, "claude");
+	assert.equal(completionUpdate.llmModelId, "claude-sonnet-4");
+	assert.equal(completionUpdate.triageProviderName, "deepseek");
+	assert.equal(completionUpdate.triageModelId, "deepseek-chat");
+});
+
 test("orchestrator sends llm_text to CAG review while preserving original pages and sections for rules", async () => {
 	const { createReviewOrchestrationProcessor } = await import(
 		"../src/jobs/review-orchestrator.mjs"

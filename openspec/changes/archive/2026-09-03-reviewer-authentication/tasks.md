@@ -388,3 +388,44 @@ feature/reviewer-authentication  (tracker — draft PR, no-merge until the end, 
 2. **PR1** (`pr1/schema-auth-contract` → tracker): Unit 1. Deployable alone (dormant). Merges into
    the tracker branch once approved.
 3. **Manual gate** (not a PR): operator runs `seed-reviewer.mjs` against the environment tracking
+   the tracker branch, confirms the account logs in. Documented in the PR body of PR2 as a
+   prerequisite, per D12's ordering table.
+4. **PR2** (`pr2/login-logout-audit` → `pr1/schema-auth-contract`, retargeted to tracker after PR1
+   merges): Unit 2. Deployable alone (routes stay public). Merges into the tracker branch.
+5. **PR3a** (`pr3a/api-session-enforcement` → `pr2/login-logout-audit`, i.e. the tracker tip after
+   PR2 merges) and **PR3b** (`pr3b/angular-auth` → the same tracker tip) are opened **together**,
+   reviewed **in parallel**, and are **individually approvable but never individually mergeable**:
+   - `sdd-apply` MUST NOT merge `pr3a` into the chain while `pr3b` is still open, and MUST NOT
+     merge `pr3b` while `pr3a` is still open. Treat "PR3a approved" and "PR3b approved" as two
+     preconditions of one joint gate, not two independent merge triggers.
+   - Merge order once **both** are approved: merge `pr3a` first (advances the tracker tip to
+     "enforcement, no login page" — a real but momentary state that never reaches `main`, since the
+     tracker itself has not merged), then immediately rebase/retarget `pr3b` onto the new tracker
+     tip and merge it. No other work merges into the tracker between these two merges.
+   - This is the literal mechanism for D12's constraint: the tracker branch (which is what
+     eventually reaches `main`) only ever contains "3a and 3b together" or "neither" — never 3a
+     alone.
+6. **PR4** (`pr4/attribution-wiring` → the tracker tip *after* the PR3a+PR3b joint merge): Unit 4.
+   Deployable alone; branches only from the point where both enforcement and the login page exist.
+7. **Tracker merge**: once PR4 merges into the tracker branch, the tracker PR (still draft) is
+   marked ready and merged into `main`. This is the only merge that reaches `main`.
+
+Dependency diagram for each child PR body (mark the current PR with `📍` per the chained-pr
+skill's hard rule):
+
+```
+tracker → PR1 → PR2 → { PR3a 📍, PR3b } (joint) → PR4 → tracker → main
+```
+
+## Key Learnings
+
+1. Design's D12 rollout table already encodes the joint-merge constraint as a data dependency, not
+   just prose — feature-branch-chain lets the tracker branch structurally forbid 3a-without-3b.
+2. `checkSession` and `verifyCredentials` are fake-repo-testable in Unit 1 even though their HTTP
+   wiring (routes in Unit 2, guard gating in Unit 3a) lands two and three units later — splitting
+   pure/fake-repo logic from its wiring is what makes the chain's early slices genuinely dormant.
+3. `audit_event` having zero existing writers (a design-phase finding, not an assumption) means the
+   audit-event RED tests in Units 2 and 4 assert against literally empty tables, not modified rows.
+4. The review-workload total for this change is higher than design.md's authored-production-line
+   estimate because the 400-line budget counts deletions (D11's admin-secret retirement) and tests,
+   which that estimate excluded.

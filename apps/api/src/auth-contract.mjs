@@ -388,3 +388,97 @@ async function handleLogin({ body }) {
 	await repository.createSession({ reviewerId: reviewer.id, tokenHash, expiresAt });
 
 	await safeInsertAuditEvent({
+		actorUserId: reviewer.id,
+		entityType: "reviewer",
+		entityId: reviewer.id,
+		eventType: "login_succeeded",
+	});
+
+	return {
+		status: 201,
+		body: {
+			type: "reviewer_session",
+			token,
+			expires_at: expiresAt.toISOString(),
+			reviewer: {
+				id: reviewer.id,
+				email: reviewer.email,
+				display_name: reviewer.displayName,
+			},
+		},
+	};
+}
+
+/**
+ * `DELETE /api/v1/auth/sessions/current` (public, idempotent, D7): always
+ * answers `204`, revoking the row only when the presented token's digest
+ * matches an unrevoked `reviewer_session` row. A gated logout would 401 an
+ * already-expired token — a needless oracle. The `logout` audit event (D8)
+ * fires only when an actual revocation happened this call, never for an
+ * unknown token or a replay of an already-revoked one.
+ */
+async function handleLogout({ headers }) {
+	const resolved = getReviewerRepository();
+	if (resolved.error) return serviceUnavailableError();
+	const repository = resolved.repository;
+
+	const token = parseBearerToken(headers);
+	if (token) {
+		const tokenHash = hashSessionToken(token);
+		const row = await repository.findSessionByHash(tokenHash);
+		if (row && !row.revokedAt) {
+			await repository.revokeSession(tokenHash);
+			await safeInsertAuditEvent({
+				actorUserId: row.reviewerId,
+				entityType: "reviewer_session",
+				entityId: row.sessionId,
+				eventType: "logout",
+			});
+		}
+	}
+
+	return { status: 204, body: undefined };
+}
+
+/**
+ * design.md D7: the auth API's HTTP entry point, delegating to
+ * `handleLogin`/`handleLogout`. Both routes are public (no `checkSession`
+ * gate) — session enforcement for every OTHER route is Unit 3a's job.
+ */
+export async function handleAuthRequest({ method, path, body = {}, headers = {} }) {
+	const normalizedMethod = method.toUpperCase();
+
+	if (normalizedMethod === "POST" && path === "/api/v1/auth/sessions") {
+		return handleLogin({ body });
+	}
+
+	if (normalizedMethod === "DELETE" && path === "/api/v1/auth/sessions/current") {
+		return handleLogout({ headers });
+	}
+
+	return errorResponse(404, "not_found", "Auth API route was not found.", {
+		method: normalizedMethod,
+		path,
+	});
+}
+
+/** Same `{ status, body: { error, message, details, request_id, timestamp } }` shape as `admin-contract.mjs`'s helper. */
+function errorResponse(status, error, message, details) {
+	return {
+		status,
+		body: {
+			error,
+			message,
+			details,
+			request_id: "req_auth_contract",
+			timestamp: new Date().toISOString(),
+		},
+	};
+}
+
+/** Test-only escape hatch: clears the unknown-email throttle bucket and the cached repositories. */
+export function _resetAuthContractForTests() {
+	unknownEmailThrottleBuckets = new Map();
+	cachedReviewerRepository = undefined;
+	cachedAuditRepository = undefined;
+}

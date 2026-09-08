@@ -388,3 +388,97 @@ login page**, or the deployed UI 401s on every screen. Within a Feature Branch C
 | # | Slice | Gate state at end | Deployable alone |
 |---|---|---|---|
 | 1 | Migration `0007`, `password-hasher.mjs`, pure `auth-contract.mjs`, reviewer/session repository methods, seed CLI | none (dormant) | Yes — zero behavior change |
+| — | **Operator provisions ≥1 active reviewer and verifies the hash round-trips** | — | manual gate |
+| 2 | `POST`/`DELETE /api/v1/auth/sessions`, `insertAuditEvent`, login/logout audit events | none (routes public) | Yes — no route starts refusing traffic |
+| 3a | `SessionGuard`, `checkSession` gate in `handleApiRequest`, controllers pass `headers`, admin-secret retirement (D11) | enforced | **No** — pairs with 3b |
+| 3b | Angular `auth/*`, login page, interceptor, route guards, `AdminSecretStore` removal | enforced | **No** — pairs with 3a |
+| 4 | Attribution: approval identity, uploader id, `?? 0` removal, approve/upload audit actors | enforced | Yes |
+
+Prerequisites for removing the admin secret, in order: (1) `reviewer` table exists **and** an
+active account is provisioned; (2) login/logout deployed; (3) Angular login deployed; only
+then (4) delete the guard, the header, and the env var. Rollback runs that list backwards.
+
+## File Changes
+
+| File | Action | Description |
+|---|---|---|
+| `apps/api/src/db/migrations/0007_reviewer_authentication.sql` | Create | D1 |
+| `apps/api/src/security/password-hasher.mjs` | Create | D2 |
+| `apps/api/src/auth-contract.mjs` | Create | D3, D4, D5, D7 |
+| `apps/api/src/auth/session.guard.ts` | Create | D6 |
+| `apps/api/src/db/reviewer-repository.mjs` | Create | reviewer + session persistence (`createReviewerRepository`, mirrors `provider-config-repository.mjs`) |
+| `apps/api/src/db/seed-reviewer.mjs` | Create | D10 |
+| `apps/api/src/api-contract.mjs` | Modify | `headers` param, two auth routes, top-level gate, attribution (D8) |
+| `apps/api/src/db/review-repository.mjs` | Modify | `approveReviewBoardCard` signature/SQL, `insertAuditEvent` |
+| `apps/api/src/live-review-pipeline.mjs` | Modify | drop `?? 0` (line 296) |
+| `apps/api/src/{review-board,thesis-documents,review-runs}/*.controller.ts` | Modify | `@UseGuards(SessionGuard)` + `@Headers()` |
+| `apps/api/src/admin/admin.controller.ts` | Modify | swap `AdminSecretGuard` → `SessionGuard` |
+| `apps/api/src/admin-contract.mjs` | Modify | delete `checkAdminSecretHeader`/`constantTimeEquals` |
+| `apps/api/src/admin/admin-secret.guard.ts` | Delete | D11 |
+| `apps/api/package.json` | Modify | `argon2` dependency |
+| `apps/web/src/app/auth/{session-view,session-store,session.interceptor,session.guard,auth-api-client,login-page}.ts` | Create | D9 |
+| `apps/web/src/app/{app.config,app.routes}.ts` | Modify | interceptor + `canActivate` |
+| `apps/web/src/app/admin/admin-secret-store.ts` | Delete | D11 |
+| `apps/web/src/app/admin/{admin-api-client,admin-providers-view,admin-providers-page}.ts` | Modify | drop secret plumbing and its UI copy |
+| `docs/mvp-vertical-slice-runbook.md` | Modify | replace the admin-secret section with the seed-CLI procedure |
+| `apps/api/tests/reviewer-auth-*.test.mjs` | Create | see below |
+| `apps/api/tests/admin-contract.test.mjs`, `apps/web/tests/smoke.test.mjs` | Modify | retire secret assertions |
+
+## Testing Strategy (strict TDD — every row is a RED test first)
+
+| Layer | What to test | Approach |
+|---|---|---|
+| Unit (js, pure) | `normalizeEmail`, `parseBearerToken` (case-insensitive, missing, malformed, `Basic`), `hashSessionToken`, `validatePasswordStrength` bounds, `evaluateThrottle`/`nextThrottleState` transitions incl. self-clear | `node:test`, no DB |
+| Unit (js, pure) | `parseSeedArgs`: `--password` rejected, missing `--email`, `--generate` + `--reset-password` combinations | `node:test` |
+| Unit (js, fake repo) | `verifyCredentials`: unknown email and wrong password return **byte-identical** bodies; inactive account likewise; 6th attempt returns 429 for both known and unknown emails; success clears counters | injected fake repository |
+| Unit (js, fake repo) | `checkSession`: valid, expired, revoked, unknown, absent header — deny by default | injected fake repository |
+| Integration (real PG) | migration UP/DOWN; case-variant email rejected by CHECK; raw (non-hex) `token_hash` rejected; `approved_by_reviewer_id` FK; seed CLI creates a logging-in account | existing real-Postgres pattern |
+| Integration (real PG) | approval with a forged `reviewerName` body records the session's identity; upload persists a real `uploaded_by_user_id`, never `0`; `login_failed` on an unknown email writes `actor_user_id IS NULL` | existing real-Postgres pattern |
+| Contract | every route in `listApiRoutes()` except the two auth routes returns `401` with no header | `contract.test.mjs` extension |
+| Repo-wide | `ADMIN_SHARED_SECRET` / `x-admin-secret` appear in zero files under `apps/` and `docs/` | grep-assertion test, mirroring the D8/D9 structural-proof precedent in `thesis-normative-governance` |
+| Web (pure) | `shouldAttachToken` refuses absolute third-party URLs and the login route; `loginFormIssues` | `apps/web/tests/*.test.mjs` |
+
+## Threat Matrix
+
+The canonical rows are recorded explicitly, then extended — none of the git/PR boundaries apply,
+but a new operator CLI and a new auth boundary do.
+
+| Boundary | Applicability | Design response |
+|---|---|---|
+| Documentation-like paths | N/A — no file classification or execution of repo content | — |
+| Git repository selection | N/A — no VCS automation | — |
+| Commit / push state | N/A — no VCS automation | — |
+| PR commands | N/A — no PR automation | — |
+| **Operator CLI argument composition** | **Applicable** — `seed-reviewer.mjs` handles a secret | `--password` rejected outright (argv leaks via `ps`/history); stdin echo suppressed; generated password printed once; hash never printed — RED test on `parseSeedArgs` |
+| **Auth boundary (A01/A07)** | **Applicable** | Deny-by-default single top-level gate; unknown route → `404` *after* the gate, never before — RED test asserting `401` for every non-auth route |
+| **Credential-response uniformity (A07)** | **Applicable** | Unknown email, wrong password, inactive account and throttle all resolve through one policy; dummy-hash burn equalizes timing — RED test asserting byte-identical bodies |
+| **Token handling (A02)** | **Applicable** | Only SHA-256 digests stored (schema CHECK); token in a body, never a URL; interceptor attaches it only to same-origin `/api/` — RED tests on the CHECK and `shouldAttachToken` |
+
+## Migration / Rollout
+
+One forward migration (`0007`) whose DOWN drops the FK column before the tables it references.
+Additive only: no existing row is rewritten, so `0007`'s DOWN loses only auth data. Rollout
+order and the pre-removal checklist are D12.
+
+**Size forecast for `sdd-tasks`**: roughly 550-700 authored production lines plus a comparable
+test volume — well past the 400-line budget. Six work units are recommended, matching D12's
+table, with 3a/3b as a chained pair that must merge together.
+
+## Deviations from the Proposal
+
+| Proposal assumed | Design found | Consequence |
+|---|---|---|
+| `bcrypt` (cost 12) is the fallback if argon2's native build fails | `bcrypt` is itself a native node-gyp addon | Fallback retargeted to `node:crypto` `scrypt` (zero deps); argon2id remains the primary (D2) |
+| `audit_event.actor_user_id` needs populating | `audit_event` has **zero writers** in `apps/api/src` | An `insertAuditEvent` writer must be built, scoped to five events (D8) |
+| `checkSession` mirrors `checkAdminSecretHeader`'s shape | That shape is `null \| response` and cannot carry identity | `{ session, error }` two-key shape, both keys always present (D3) |
+| Slice order: guards → attribution → Angular | API-only enforcement 401s the live UI | Angular pairs with enforcement as a chained 3a/3b; attribution moves last (D12) |
+| Only `reviewer` + `reviewer_session` tables | `review_workflow_item` has no reviewer id column | `0007` also adds nullable `approved_by_reviewer_id` (D1/D8) |
+| `403` disappears with no admin role | Also true for the guard | `SessionGuard` has no `403` branch at all — 401 or 503 only (D6) |
+
+## Open Questions
+
+- [ ] `SESSION_TTL_MS = 8h` is chosen to outlast one working day of review. The first real
+      reviewer session should confirm nobody is re-logging in mid-review; if they are, the fix
+      is sliding expiry, not a longer fixed TTL.
+- [ ] Expired `reviewer_session` rows are never deleted. At PG1's scale that is free; a cleanup
+      job is deliberately a follow-up, not this change.

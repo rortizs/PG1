@@ -382,35 +382,24 @@ class CagReviewTest(unittest.TestCase):
         provider = FakeLLMProvider(responses=[json.dumps({"findings": [{"title": "Incomplete"}]})])
 
         with self.assertRaises(CagReviewError):
-            run_cag_review(provider, "Some excerpt.")
+            run_cag_review(provider, pages=self._pages(1), sections=[])
 
     def test_invalid_confidence_raises_cag_review_error_never_raw_value_error(self):
         from app.cag_review import CagReviewError, run_cag_review
 
-        provider = FakeLLMProvider(
-            response_text=json.dumps(
-                {
-                    "finding": {
-                        "title": "Invalid confidence",
-                        "explanation": "The provider returned an invalid confidence.",
-                        "recommendation": "Return a numeric confidence.",
-                        "evidence_text": "Some excerpt.",
-                        "normative_source_ref": "guide.txt",
-                        "confidence": "not-a-number",
-                    }
-                }
-            )
+        bad = finding_payload(
+            title="Invalid confidence",
+            evidence_text="Grounded issue 1 appears here.",
+            page_number=1,
+            section_index=None,
         )
+        bad["confidence"] = "not-a-number"
+        provider = FakeLLMProvider(responses=[json.dumps({"findings": [bad]})])
 
         with self.assertRaises(CagReviewError):
-            run_cag_review(provider, "Some excerpt.")
+            run_cag_review(provider, pages=self._pages(1), sections=[])
 
     def test_missing_anthropic_api_key_raises_explicit_config_error(self):
-        """Both the request payload AND the env var are absent — still fails
-        explicitly. Reworked for llm-provider-admin: `AnthropicProvider()` no
-        longer implicitly means "read only the env var" — it means "no
-        explicit key was supplied", which still falls back to the env var
-        when present and still fails when neither is present."""
         import os
 
         from app.cag_review import run_cag_review
@@ -423,17 +412,12 @@ class CagReviewTest(unittest.TestCase):
         try:
             provider = AnthropicProvider()
             with self.assertRaises(AnthropicProviderConfigError):
-                run_cag_review(provider, "Some excerpt.")
+                run_cag_review(provider, pages=self._pages(1), sections=[])
         finally:
             if previous is not None:
                 os.environ["ANTHROPIC_API_KEY"] = previous
 
     def test_explicit_api_key_and_model_take_precedence_over_env_when_both_present(self):
-        """llm-provider-admin: the DB-resolved active provider's api_key/model_id
-        (forwarded from the API as explicit constructor args) MUST win over
-        whatever ANTHROPIC_API_KEY happens to be set in the worker's own
-        environment (e.g. left over from local dev) — never silently prefer
-        the env var when a payload value was actually supplied."""
         import os
 
         from app.providers.anthropic_provider import AnthropicProvider
@@ -453,9 +437,6 @@ class CagReviewTest(unittest.TestCase):
                 os.environ.pop("ANTHROPIC_API_KEY", None)
 
     def test_env_api_key_still_used_when_no_explicit_key_supplied(self):
-        """Rollback / local-dev requirement (design decision #11): the
-        ANTHROPIC_API_KEY env fallback MUST keep working when the request
-        carries no explicit api_key at all."""
         import os
 
         from app.providers.anthropic_provider import AnthropicProvider

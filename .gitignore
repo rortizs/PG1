@@ -1,5 +1,21 @@
-# Local Pi runtime state
+# Local AI agent/runtime state
 .atl/
+.pi/
+.pi-lens/
+.codegraph/
+.firecrawl/
+.openclaw/
+.windsurf/
+.claude/
+.codex/
+.cursor/
+.continue/
+.aider*
+.roo/
+.kilocode/
+.gemini/
+AGENTS.md
+SOUL.md
 
 # Dependencies and caches
 node_modules/

@@ -20,6 +20,8 @@ import assert from "node:assert/strict";
  * silently passing for the wrong reason if that assumption ever breaks.
  */
 const UNREACHABLE_DATABASE_URL = "postgres://pg1:pg1@127.0.0.1:5555/pg1";
+const DEFAULT_LOCAL_DATABASE_URL = "postgres://pg1:pg1@localhost:5432/pg1";
+const reachableDatabaseUrl = process.env.DATABASE_URL ?? DEFAULT_LOCAL_DATABASE_URL;
 
 function pdfFile(name) {
 	const content = Buffer.from(`%PDF-1.4 fake bytes for ${name}`);
@@ -73,21 +75,62 @@ test(
 			`Precondition failed: expected ECONNREFUSED on 127.0.0.1:5555, got ${probeError.code ?? probeError.message}`,
 		);
 
-		// --- Real assertions: a genuinely unreachable DATABASE_URL during a
-		// real upload must surface as 5xx with the standard error shape, not a
-		// crash and not a silently-wrong 201 success.
-		process.env.DATABASE_URL = UNREACHABLE_DATABASE_URL;
+		// reviewer-authentication PR3a: `POST /api/v1/thesis-documents` now sits
+		// behind the deny-by-default session gate (design.md D6), which needs a
+		// reachable database to verify ANY session. To keep exercising THIS
+		// test's specific boundary (the upload path's own DB-unreachable
+		// handling, not the auth gate's), a real reviewer session is minted
+		// while `DATABASE_URL` is still reachable, and the auth gate is
+		// deliberately "warmed" with one successful authenticated call — this
+		// populates `auth-contract.mjs`'s cached reviewer-repository singleton
+		// against the REACHABLE connection string, so once `DATABASE_URL` flips
+		// to the unreachable target below, `checkSession` keeps succeeding
+		// (same cached repository) while the upload's own — separately
+		// resolved — DB write is what genuinely fails.
+		const migrate = await import("../src/db/migrate.mjs");
+		const setupClient = new pg.Client({
+			connectionString: reachableDatabaseUrl,
+			connectionTimeoutMillis: 2000,
+		});
+		await setupClient.connect();
+		await migrate.migrateDown({ client: setupClient }).catch(() => {});
+		await migrate.migrateUp({ client: setupClient });
+		await setupClient.end();
+
+		process.env.DATABASE_URL = reachableDatabaseUrl;
+		const { createAuthenticatedSession } = await import(
+			"./support/reviewer-session-fixture.mjs"
+		);
+		const session = await createAuthenticatedSession({
+			connectionString: reachableDatabaseUrl,
+		});
+
 		const { handleApiRequest } = await import("../src/api-contract.mjs");
 		const { _resetLiveReviewPipelineForTests } = await import(
 			"../src/live-review-pipeline.mjs"
 		);
 		_resetLiveReviewPipelineForTests();
 
+		// Warm-up call: proves the session gate itself works against the
+		// reachable DB and populates the cached reviewer repository.
+		const warmup = await handleApiRequest({
+			method: "GET",
+			path: "/api/v1/thesis-documents",
+			headers: session.headers,
+		});
+		assert.equal(warmup.status, 200);
+
+		// --- Real assertions: a genuinely unreachable DATABASE_URL during a
+		// real upload must surface as 5xx with the standard error shape, not a
+		// crash and not a silently-wrong 201 success.
+		process.env.DATABASE_URL = UNREACHABLE_DATABASE_URL;
+
 		try {
 			const response = await handleApiRequest({
 				method: "POST",
 				path: "/api/v1/thesis-documents",
 				body: { files: [pdfFile("unreachable-db.pdf")], uploaderUserId: 1 },
+				headers: session.headers,
 			});
 
 			expectStandardError(response, 503, "service_unavailable");
@@ -96,6 +139,10 @@ test(
 		} finally {
 			delete process.env.DATABASE_URL;
 			_resetLiveReviewPipelineForTests();
+			const cleanupClient = new pg.Client({ connectionString: reachableDatabaseUrl });
+			await cleanupClient.connect();
+			await migrate.migrateDown({ client: cleanupClient }).catch(() => {});
+			await cleanupClient.end();
 		}
 	},
 );

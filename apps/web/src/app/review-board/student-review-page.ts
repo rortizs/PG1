@@ -248,9 +248,49 @@ export class StudentReviewPage {
 			reportArtifacts: this.reportArtifacts(),
 		}),
 	);
+
+	protected readonly errorMessage = computed(() => {
+		const view = this.view();
+		return view.kind === "error" ? view.message : "";
+	});
+	protected readonly notFoundStudentId = computed(() => {
+		const view = this.view();
+		return view.kind === "not_found" ? view.studentId : "";
+	});
+	protected readonly studentName = computed(() => {
+		const view = this.view();
+		return view.kind === "found" ? view.studentName : "";
+	});
+	protected readonly thesisTitle = computed(() => {
+		const view = this.view();
+		return view.kind === "found" ? view.thesisTitle : "";
+	});
+	protected readonly boardState = computed(() => {
+		const view = this.view();
+		return view.kind === "found" ? view.boardState : "";
+	});
+	protected readonly priority = computed(() => {
+		const view = this.view();
+		return view.kind === "found" ? view.priority : "";
+	});
+	protected readonly reviewerName = computed(() => {
+		const view = this.view();
+		return view.kind === "found" ? view.reviewerName : "";
+	});
+	protected readonly studentStatus = computed(() => {
+		const view = this.view();
+		return view.kind === "found" ? view.status : null;
+	});
 	protected readonly progress = computed(() =>
-		buildReviewProgressView(this.review().status ?? "queued"),
+		buildReviewProgressView(this.studentStatus() ?? "queued"),
 	);
+	protected readonly markdownDownload = computed(() => {
+		const view = this.view();
+		return view.kind === "found"
+			? buildMarkdownReportDownload(view.reportArtifact)
+			: null;
+	});
+
 	protected readonly uploadValidation = computed(() =>
 		validateSelectedFiles(this.selectedFiles()),
 	);
@@ -263,11 +303,10 @@ export class StudentReviewPage {
 			? validation.message
 			: null;
 	});
-	protected readonly markdownDownload = computed(() =>
-		buildMarkdownReportDownload(
-			selectMarkdownReportArtifact(this.review().reportArtifacts),
-		),
-	);
+
+	constructor() {
+		this.loadStudentReview();
+	}
 
 	protected onFilesSelected(event: Event): void {
 		const input = event.target as HTMLInputElement;
@@ -309,6 +348,39 @@ export class StudentReviewPage {
 		anchor.download = download.filename;
 		anchor.click();
 		URL.revokeObjectURL(url);
+	}
+
+	private loadStudentReview(): void {
+		this.api.getReviewBoardCards().subscribe({
+			next: (response) => {
+				this.cards.set(response.items);
+				this.loadError.set(null);
+
+				const card = response.items.find(
+					(item) => item.id === this.studentId(),
+				);
+				if (card?.current_review_run_id) {
+					this.loadReviewRunDetail(card.current_review_run_id);
+				}
+			},
+			error: () => this.loadError.set("Unable to load the review board."),
+		});
+	}
+
+	private loadReviewRunDetail(runId: string): void {
+		forkJoin({
+			run: this.api.getReviewRun(runId),
+			reportArtifacts: this.api.getReportArtifacts(runId),
+		}).subscribe({
+			next: ({ run, reportArtifacts }) => {
+				this.run.set(run);
+				this.reportArtifacts.set(reportArtifacts.items);
+			},
+			error: () => {
+				this.run.set(null);
+				this.reportArtifacts.set(null);
+			},
+		});
 	}
 
 	private setSelectedFiles(files: File[]): void {

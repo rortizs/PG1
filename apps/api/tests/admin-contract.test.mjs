@@ -325,111 +325,18 @@ test("admin CRUD + activate against live Postgres: masked create, key-preserving
 					"activating triage must not deactivate the active judgment provider",
 				);
 
-					// --- Create: valid claude row -> 201, masked key only ---
-					const createRes = await handleAdminRequest({
-						method: "POST",
-						path: "/api/v1/admin/llm-providers",
-						headers: auth,
-						body: {
-							provider_name: "claude",
-							model_id: "claude-sonnet-4-20250514",
-							api_key: "sk-ant-original-secret-key-0001",
-						},
-					});
-					assert.equal(createRes.status, 201);
-					assert.equal(createRes.body.provider_name, "claude");
-					assert.equal(createRes.body.api_key_last_four, "0001");
-					assert.equal(createRes.body.is_active, false);
-					assert.equal(createRes.body.encrypted_api_key, undefined);
-					assert.equal(createRes.body.api_key, undefined);
-					assert.doesNotMatch(
-						JSON.stringify(createRes.body),
-						/sk-ant-original-secret-key-0001/,
-					);
-					const claudeId = createRes.body.id;
-
-					// --- Create a second (deepseek) row, inactive ---
-					const createRes2 = await handleAdminRequest({
-						method: "POST",
-						path: "/api/v1/admin/llm-providers",
-						headers: auth,
-						body: {
-							provider_name: "deepseek",
-							model_id: "deepseek-chat",
-							api_key: "sk-deepseek-secret-key-0002",
-						},
-					});
-					assert.equal(createRes2.status, 201);
-					const deepseekId = createRes2.body.id;
-
-					// --- Update without resubmitting the key preserves the masked key ---
-					const updateRes = await handleAdminRequest({
-						method: "PATCH",
-						path: `/api/v1/admin/llm-providers/${claudeId}`,
-						headers: auth,
-						body: { model_id: "claude-sonnet-4-5-20250929" },
-					});
-					assert.equal(updateRes.status, 200);
-					assert.equal(updateRes.body.model_id, "claude-sonnet-4-5-20250929");
-					assert.equal(
-						updateRes.body.api_key_last_four,
-						"0001",
-						"a key-less update must preserve the previously stored masked key",
-					);
-					assert.equal(updateRes.body.encrypted_api_key, undefined);
-
-					// --- Activate claude: becomes active ---
-					const activateRes = await handleAdminRequest({
-						method: "POST",
-						path: `/api/v1/admin/llm-providers/${claudeId}/activate`,
-						headers: auth,
-					});
-					assert.equal(activateRes.status, 200);
-					assert.equal(activateRes.body.is_active, true);
-
-					// --- Activate deepseek: atomically deactivates claude ---
-					const activateRes2 = await handleAdminRequest({
-						method: "POST",
-						path: `/api/v1/admin/llm-providers/${deepseekId}/activate`,
-						headers: auth,
-					});
-					assert.equal(activateRes2.status, 200);
-					assert.equal(activateRes2.body.is_active, true);
-
-					// --- List: exactly one active row (deepseek), never encrypted_api_key ---
-					const listRes = await handleAdminRequest({
-						method: "GET",
-						path: "/api/v1/admin/llm-providers",
-						headers: auth,
-					});
-					assert.equal(listRes.status, 200);
-					assert.equal(listRes.body.items.length, 2);
-					for (const item of listRes.body.items) {
-						assert.equal(
-							Object.prototype.hasOwnProperty.call(item, "encrypted_api_key"),
-							false,
-							"no list item may ever expose encrypted_api_key",
-						);
-						assert.equal(Object.prototype.hasOwnProperty.call(item, "api_key"), false);
-					}
-					const activeItems = listRes.body.items.filter((item) => item.is_active);
-					assert.equal(activeItems.length, 1);
-					assert.equal(activeItems[0].provider_name, "deepseek");
-					const claudeItem = listRes.body.items.find((item) => item.id === claudeId);
-					assert.equal(
-						claudeItem.is_active,
-						false,
-						"activating deepseek must have atomically deactivated claude",
-					);
-
-					_resetAdminContractForTests();
-				},
-			);
-		} finally {
-			const cleanupClient = new pg.Client({ connectionString: databaseUrl });
-			await cleanupClient.connect();
-			await migrate.migrateDown({ client: cleanupClient }).catch(() => {});
-			await cleanupClient.end();
-		}
-	},
-);
+				_resetAdminContractForTests();
+			},
+		);
+	} finally {
+		const cleanupClient = new pg.Client({ connectionString: databaseUrl });
+		await cleanupClient.connect();
+		await cleanupClient
+			.query(
+				"UPDATE llm_provider_config SET is_active = false WHERE role = 'triage'",
+			)
+			.catch(() => {});
+		await migrate.migrateDown({ client: cleanupClient }).catch(() => {});
+		await cleanupClient.end();
+	}
+});

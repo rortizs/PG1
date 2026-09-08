@@ -10,8 +10,8 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { handleAdminRequest } from '../admin-contract.mjs';
+import { SessionGuard } from '../auth/session.guard.js';
 import type { HttpResponse } from '../http-types.js';
-import { AdminSecretGuard } from './admin-secret.guard.js';
 
 /** Minimal structural shape of the headers this controller needs. */
 interface RequestWithHeaders {
@@ -23,13 +23,15 @@ interface RequestWithHeaders {
  *
  * Every method delegates to the isolated, pure `handleAdminRequest` (design
  * decision #7) — no CRUD/encryption/masking logic is re-implemented here.
- * `AdminSecretGuard` rejects unauthenticated/unauthorized requests before
- * reaching these methods; `handleAdminRequest` independently re-checks the
- * same shared secret (defense-in-depth, and the sole enforcement path
- * exercised directly by `admin-contract.test.mjs`).
+ * reviewer-authentication design.md D11: the temporary MVP shared-secret
+ * header guard (`AdminSecretGuard`) is retired — `SessionGuard` now gates
+ * this controller exactly like every other one, requiring a valid reviewer
+ * session (no separate admin role exists). `handleAdminRequest` itself no
+ * longer performs its own auth check; `SessionGuard` is the sole enforcement
+ * path for these routes.
  */
 @Controller('api/v1/admin/llm-providers')
-@UseGuards(AdminSecretGuard)
+@UseGuards(SessionGuard)
 export class AdminController {
   readonly routes = [
     'GET /api/v1/admin/llm-providers',

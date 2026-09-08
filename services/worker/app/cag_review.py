@@ -349,3 +349,120 @@ def _finding_from_payload(
         metadata=dict(finding.get("metadata") or {}),
         chunk_index=chunk.index,
     )
+
+
+def _dedup_findings(findings: list[CagFinding], stats: dict[str, int]) -> list[CagFinding]:
+    survivors: list[CagFinding] = []
+    for candidate in findings:
+        duplicate_index: int | None = None
+        for index, existing in enumerate(survivors):
+            chunk_distance = abs((candidate.chunk_index or 0) - (existing.chunk_index or 0))
+            if chunk_distance > 1:
+                continue
+            if candidate.finding_type != existing.finding_type:
+                continue
+            if _token_set_ratio(candidate.evidence_text, existing.evidence_text) < DEDUP_MIN:
+                continue
+            duplicate_index = index
+            break
+        if duplicate_index is None:
+            survivors.append(candidate)
+            continue
+
+        stats["dropped_duplicate"] += 1
+        existing = survivors[duplicate_index]
+        if candidate.confidence > existing.confidence:
+            metadata = dict(candidate.metadata)
+            metadata["duplicate_of_pages"] = [
+                page for page in [existing.page_number] if page is not None
+            ]
+            survivors[duplicate_index] = CagFinding(**{**candidate.__dict__, "metadata": metadata})
+        else:
+            metadata = dict(existing.metadata)
+            pages = list(metadata.get("duplicate_of_pages") or [])
+            if candidate.page_number is not None:
+                pages.append(candidate.page_number)
+            metadata["duplicate_of_pages"] = pages
+            survivors[duplicate_index] = CagFinding(**{**existing.__dict__, "metadata": metadata})
+    return survivors
+
+
+def _sort_findings(findings: list[CagFinding]) -> list[CagFinding]:
+    severity_rank = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+    return sorted(
+        findings,
+        key=lambda finding: (
+            severity_rank.get((finding.severity or "medium").lower(), 2),
+            finding.page_number if finding.page_number is not None else 10**9,
+        ),
+    )
+
+
+def run_cag_review(
+    provider: LLMProvider,
+    *,
+    triage_provider: LLMProvider | None = None,
+    pages: list[dict[str, Any]],
+    sections: list[dict[str, Any]] | None = None,
+    corpus_dir: Path = DEFAULT_CORPUS_DIR,
+    model_label: str = "claude",
+) -> CagReviewResult:
+    corpus_text = load_corpus(corpus_dir)
+    system_blocks = build_system_blocks(corpus_text)
+    chunks = _plan_chunks(pages, sections or [])
+    stats = {
+        "chunks": 0,
+        "triage_skipped": 0,
+        "triage_errors": 0,
+        "dropped_low_confidence": 0,
+        "dropped_ungrounded": 0,
+        "dropped_duplicate": 0,
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+    }
+    accepted: list[CagFinding] = []
+
+    for chunk in chunks:
+        stats["chunks"] += 1
+        if triage_provider is not None:
+            try:
+                if not _triage_says_suspect(triage_provider, chunk):
+                    stats["triage_skipped"] += 1
+                    continue
+            except Exception:
+                stats["triage_errors"] += 1
+
+        completion = provider.complete(system_blocks=system_blocks, user_text=chunk.text)
+        stats["cache_read_tokens"] += completion.cache_read_tokens or 0
+        stats["cache_write_tokens"] += completion.cache_write_tokens or 0
+        payload = _parse_response(completion.text)
+        for raw_finding in payload["findings"]:
+            if not isinstance(raw_finding, dict):
+                raise CagReviewError("Provider finding entries must be objects")
+            candidate = _finding_from_payload(raw_finding, chunk=chunk, model_label=model_label)
+            if candidate.confidence < MIN_LLM_CONFIDENCE:
+                stats["dropped_low_confidence"] += 1
+                continue
+            if not _is_grounded(candidate.evidence_text, chunk.source_text):
+                stats["dropped_ungrounded"] += 1
+                continue
+            accepted.append(candidate)
+
+    deduped = _dedup_findings(accepted, stats)
+    return CagReviewResult(findings=_sort_findings(deduped), stats=stats)
+
+
+__all__ = [
+    "CagFinding",
+    "CagReviewError",
+    "CagReviewResult",
+    "CONTEXT_TAIL_CHARS",
+    "DEDUP_MIN",
+    "GROUNDING_FUZZ_MIN",
+    "MAX_CHUNK_CHARS",
+    "MAX_CHUNK_PAGES",
+    "MIN_LLM_CONFIDENCE",
+    "build_system_blocks",
+    "load_corpus",
+    "run_cag_review",
+]

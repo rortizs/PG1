@@ -1,9 +1,9 @@
 """Real Claude provider, implementing the `LLMProvider` protocol.
 
-The API key is resolved lazily, inside `generate()` — never at import time
+The API key is resolved lazily, inside `complete()` — never at import time
 or construction time — so this module can be safely imported, and
 `AnthropicProvider()` safely constructed, in test processes that have no API
-key configured. Only an actual `.generate()` call requires a key.
+key configured. Only an actual `.complete()` call requires a key.
 
 llm-provider-admin (Work Unit 5): the NestJS API now resolves the DB-active
 provider and forwards its decrypted `api_key`/`model_id` on each request.
@@ -15,11 +15,16 @@ for any caller that has not been updated to send an explicit key.
 from __future__ import annotations
 
 import os
+from typing import Any, cast
 
-from .llm_provider import LLMProviderError
+from .llm_provider import CompletionResult, LLMProviderError, PromptBlock
 
 DEFAULT_MODEL = "claude-sonnet-4-20250514"
 DEFAULT_TIMEOUT_SECONDS = 30.0
+ANTHROPIC_CACHE_TTL_ENV = "ANTHROPIC_CACHE_TTL"
+DEFAULT_CACHE_TTL = "5m"
+EXTENDED_CACHE_TTL = "1h"
+EXTENDED_CACHE_TTL_BETA_HEADER = "extended-cache-ttl-2025-04-11"
 
 
 class AnthropicProviderConfigError(LLMProviderError):
@@ -48,7 +53,13 @@ class AnthropicProvider:
         over `ANTHROPIC_API_KEY` when both are present."""
         return self._api_key or os.environ.get("ANTHROPIC_API_KEY")
 
-    def generate(self, prompt: str, *, max_tokens: int = 1024) -> str:
+    def complete(
+        self,
+        *,
+        system_blocks: list[PromptBlock],
+        user_text: str,
+        max_tokens: int = 2048,
+    ) -> CompletionResult:
         api_key = self._resolve_api_key()
         if not api_key:
             raise AnthropicProviderConfigError(
@@ -60,12 +71,21 @@ class AnthropicProvider:
         # importable, not configured, for the rest of the module to load.
         from anthropic import APIError, Anthropic
 
-        client = Anthropic(api_key=api_key, timeout=self._timeout_seconds)
+        client_kwargs: dict[str, Any] = {"api_key": api_key, "timeout": self._timeout_seconds}
+        cache_ttl = os.environ.get(ANTHROPIC_CACHE_TTL_ENV, DEFAULT_CACHE_TTL)
+        if cache_ttl == EXTENDED_CACHE_TTL:
+            client_kwargs["default_headers"] = {
+                "anthropic-beta": EXTENDED_CACHE_TTL_BETA_HEADER
+            }
+
+        client = Anthropic(**client_kwargs)
+        system_payload = [_to_anthropic_system_block(block, cache_ttl) for block in system_blocks]
         try:
             response = client.messages.create(
                 model=self._model,
                 max_tokens=max_tokens,
-                messages=[{"role": "user", "content": prompt}],
+                system=cast(Any, system_payload),
+                messages=[{"role": "user", "content": user_text}],
             )
         except APIError as exc:
             raise AnthropicProviderUpstreamError(
@@ -83,4 +103,22 @@ class AnthropicProvider:
             raise AnthropicProviderUpstreamError(
                 "Claude API response contained no text content"
             )
-        return "".join(text_blocks)
+
+        usage = getattr(response, "usage", None)
+        return CompletionResult(
+            text="".join(text_blocks),
+            input_tokens=getattr(usage, "input_tokens", None),
+            output_tokens=getattr(usage, "output_tokens", None),
+            cache_read_tokens=getattr(usage, "cache_read_input_tokens", None),
+            cache_write_tokens=getattr(usage, "cache_creation_input_tokens", None),
+        )
+
+
+def _to_anthropic_system_block(block: PromptBlock, cache_ttl: str) -> dict[str, Any]:
+    payload: dict[str, Any] = {"type": "text", "text": block.text}
+    if block.cacheable:
+        cache_control = {"type": "ephemeral"}
+        if cache_ttl == EXTENDED_CACHE_TTL:
+            cache_control["ttl"] = EXTENDED_CACHE_TTL
+        payload["cache_control"] = cache_control
+    return payload

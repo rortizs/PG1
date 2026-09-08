@@ -1,5 +1,6 @@
 import { Module } from "@nestjs/common";
 import { AdminController } from "./admin/admin.controller.js";
+import { AuthController } from "./auth/auth.controller.js";
 import { ReviewBoardController } from "./review-board/review-board.controller.js";
 import { ReviewRunsController } from "./review-runs/review-runs.controller.js";
 import { ThesisDocumentsController } from "./thesis-documents/thesis-documents.controller.js";
@@ -19,6 +20,7 @@ import { ThesisDocumentsController } from "./thesis-documents/thesis-documents.c
 		ReviewRunsController,
 		ReviewBoardController,
 		AdminController,
+		AuthController,
 	],
 })
 export class Pg1ApiModule {}

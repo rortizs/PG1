@@ -1,16 +1,12 @@
-"""Registry-only providers (llm-provider-admin Work Unit 6).
+"""Registry-only providers without real worker backends yet.
 
-DeepSeek and Groq are valid `provider_name` values at the admin-CRUD layer
-(an admin can create/activate a row for either today), but neither has a
-real implementation yet. These providers exist so that using one to actually
-run a review fails LOUDLY and explicitly — inside `.generate()`, exactly
-like `AnthropicProviderConfigError` fails inside `AnthropicProvider.generate()`
-— never silently falling back to Claude, and never attempting a real network
-call.
+Groq and any unknown registered provider fail LOUDLY and explicitly inside
+`.complete()` — never silently falling back to Claude, and never attempting a
+real network call.
 """
 from __future__ import annotations
 
-from .llm_provider import ProviderNotImplementedError
+from .llm_provider import CompletionResult, PromptBlock, ProviderNotImplementedError
 
 
 class UnimplementedProvider:
@@ -25,15 +21,16 @@ class UnimplementedProvider:
         self._name = name
         self._model = model
 
-    def generate(self, prompt: str, *, max_tokens: int = 1024) -> str:
+    def complete(
+        self,
+        *,
+        system_blocks: list[PromptBlock],
+        user_text: str,
+        max_tokens: int = 2048,
+    ) -> CompletionResult:
         raise ProviderNotImplementedError(
             f"{self._name} provider is not yet implemented — no real API call was attempted."
         )
-
-
-class DeepSeekProvider(UnimplementedProvider):
-    def __init__(self, *, api_key: str | None = None, model: str | None = None) -> None:
-        super().__init__("deepseek", api_key=api_key, model=model)
 
 
 class GroqProvider(UnimplementedProvider):

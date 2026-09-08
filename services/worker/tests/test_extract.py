@@ -145,7 +145,7 @@ class DocxConversionTest(unittest.TestCase):
 
     def test_docx_upload_uses_safe_libreoffice_args_and_cleans_tempdir(self):
         docx_bytes = build_minimal_docx(["The hostile filename must not reach argv."])
-        converted_pdf = build_minimal_pdf("CAPÍTULO 1")
+        converted_pdf = build_minimal_pdf("CAPITULO 1")
         captured = {}
 
         def fake_run(args, **kwargs):
@@ -170,8 +170,8 @@ class DocxConversionTest(unittest.TestCase):
 
         self.assertEqual(result.content_type, RESOLVED_DOCX_CONTENT_TYPE)
         self.assertEqual(result.pages[0].page_number, 1)
-        self.assertEqual(result.pages[0].section_title, "CAPÍTULO 1")
-        self.assertEqual(result.sections[0].title, "CAPÍTULO 1")
+        self.assertEqual(result.pages[0].section_title, "CAPITULO 1")
+        self.assertEqual(result.sections[0].title, "CAPITULO 1")
         self.assertFalse(captured["outdir"].exists())
         self.assertIsInstance(captured["args"], list)
         self.assertEqual(captured["args"][0], "/usr/bin/soffice")
@@ -189,7 +189,7 @@ class DocxConversionTest(unittest.TestCase):
         self.assertNotIn('"; rm -rf /', " ".join(str(arg) for arg in captured["args"]))
 
     def test_docx_and_native_pdf_share_downstream_per_page_extraction(self):
-        pdf_bytes = build_minimal_pdf("CAPÍTULO 1")
+        pdf_bytes = build_minimal_pdf("CAPITULO 1")
         docx_bytes = build_minimal_docx(["DOCX bytes are converted before extraction."])
 
         with patch("app.extraction._convert_docx_to_pdf", return_value=pdf_bytes) as convert:
@@ -283,7 +283,11 @@ class ExtractEndpointTest(unittest.TestCase):
         self.assertEqual(body["sections"], [])
 
     def test_extracts_sections_and_per_page_section_title_from_a_real_pdf(self):
-        pdf_bytes = build_minimal_pdf("CAPÍTULO 1")
+        # The hand-built PDF fixture intentionally uses ASCII-only content:
+        # PDF literal strings are not Latin-1 text by default, and pypdf
+        # versions differ on whether they recover accented glyphs from such
+        # minimal fixtures. Accent-folding is covered by pure section tests.
+        pdf_bytes = build_minimal_pdf("CAPITULO 1")
 
         response = self.client.post(
             "/internal/extract",
@@ -294,11 +298,11 @@ class ExtractEndpointTest(unittest.TestCase):
         body = response.json()
         self.assertEqual(len(body["sections"]), 1)
         section = body["sections"][0]
-        self.assertEqual(section["title"], "CAPÍTULO 1")
+        self.assertEqual(section["title"], "CAPITULO 1")
         self.assertEqual(section["section_type"], "chapter")
         self.assertEqual(section["start_page_number"], 1)
         self.assertIsNone(section["parent_index"])
-        self.assertEqual(body["pages"][0]["section_title"], "CAPÍTULO 1")
+        self.assertEqual(body["pages"][0]["section_title"], "CAPITULO 1")
 
     def test_extracts_docx_via_converted_pdf(self):
         docx_bytes = build_minimal_docx(["Original DOCX bytes."])

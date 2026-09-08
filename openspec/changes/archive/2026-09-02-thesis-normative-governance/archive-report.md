@@ -1,9 +1,9 @@
 # Archive Report: Thesis Normative Governance
 
-**Change ID**: thesis-normative-governance  
-**Archive Date**: 2026-09-02  
-**Archive Path**: `openspec/changes/archive/2026-09-02-thesis-normative-governance/`  
-**Artifact Store Mode**: Hybrid (OpenSpec + Engram)  
+**Change ID**: thesis-normative-governance
+**Archive Date**: 2026-09-02
+**Archive Path**: `openspec/changes/archive/2026-09-02-thesis-normative-governance/`
+**Artifact Store Mode**: Hybrid (OpenSpec + Engram)
 **SDD Cycle Status**: COMPLETE
 
 ---
@@ -181,6 +181,6 @@ The change is ready for the next phase of work (such as follow-on refinements by
 
 ---
 
-**Archive Report Generated**: 2026-09-02  
-**Archive Status**: COMPLETE  
+**Archive Report Generated**: 2026-09-02
+**Archive Status**: COMPLETE
 **Next Recommended Phase**: None — change is fully archived and closed. The new specs are available for downstream changes.

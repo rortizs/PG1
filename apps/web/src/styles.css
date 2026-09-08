@@ -1,1 +1,281 @@
 /* You can add global styles to this file, and also import other style files */
+
+/*
+ * "Scholarly Schematic" design system tokens for PG1.
+ * Sharp corners, zero elevation/shadow, ink-wash depth, serif narrative
+ * type paired with monospace technical/data type. See docs in the Stitch
+ * mockups for the source design language.
+ */
+:root {
+  /* Color */
+  --pg1-color-surface: #fdfbf7;
+  --pg1-color-surface-container-low: #f5f3ef;
+  --pg1-color-ink: #2d2d2d;
+  --pg1-color-on-primary: #ffffff;
+  --pg1-color-academic-blue: #3e5c76;
+  --pg1-color-deep-crimson: #8b2635;
+  --pg1-color-outline: #747878;
+  --pg1-color-outline-variant: #c4c7c7;
+  --pg1-color-error: #ba1a1a;
+  --pg1-color-error-container: #ffdad6;
+  --pg1-ink-wash-05: rgb(45 45 45 / 5%);
+  --pg1-ink-wash-08: rgb(45 45 45 / 8%);
+
+  /* Typography */
+  --pg1-font-serif: 'Source Serif 4', serif;
+  --pg1-font-mono: 'JetBrains Mono', monospace;
+
+  --pg1-headline-lg-size: 32px;
+  --pg1-headline-lg-line: 40px;
+  --pg1-headline-lg-weight: 700;
+  --pg1-headline-lg-tracking: -0.02em;
+
+  --pg1-headline-md-size: 24px;
+  --pg1-headline-md-line: 32px;
+  --pg1-headline-md-weight: 600;
+
+  --pg1-body-md-size: 16px;
+  --pg1-body-md-line: 24px;
+  --pg1-body-md-weight: 400;
+
+  --pg1-label-mono-size: 13px;
+  --pg1-label-mono-line: 16px;
+  --pg1-label-mono-weight: 500;
+
+  --pg1-label-mono-sm-size: 11px;
+  --pg1-label-mono-sm-line: 14px;
+  --pg1-label-mono-sm-weight: 400;
+  --pg1-label-mono-sm-tracking: 0.05em;
+
+  /* Spacing (4px unit) */
+  --pg1-space-unit: 4px;
+  --pg1-space-gutter: 24px;
+  --pg1-page-margin: 48px;
+  --pg1-node-gap: 16px;
+  --pg1-container-padding: 32px;
+
+  /* Shape (strict: sharp corners, no elevation) */
+  --pg1-radius: 0;
+  --pg1-border-current: 1.5px solid var(--pg1-color-ink);
+  --pg1-border-structural: 1px solid var(--pg1-color-ink);
+  --pg1-border-hairline: 1px solid var(--pg1-color-outline-variant);
+}
+
+/* Reset */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--pg1-color-surface);
+  color: var(--pg1-color-ink);
+  font-family: var(--pg1-font-serif);
+  font-size: var(--pg1-body-md-size);
+  line-height: var(--pg1-body-md-line);
+  font-weight: var(--pg1-body-md-weight);
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3,
+p,
+ul,
+ol,
+figure,
+blockquote {
+  margin: 0;
+}
+
+ul,
+ol {
+  padding: 0;
+  list-style: none;
+}
+
+img {
+  max-width: 100%;
+  display: block;
+}
+
+/* Base heading rhythm — components may override for a specific context
+   (e.g. a technical/data-label heading rendered in JetBrains Mono). */
+h1 {
+  font-family: var(--pg1-font-serif);
+  font-size: var(--pg1-headline-lg-size);
+  line-height: var(--pg1-headline-lg-line);
+  font-weight: var(--pg1-headline-lg-weight);
+  letter-spacing: var(--pg1-headline-lg-tracking);
+}
+
+h2 {
+  font-family: var(--pg1-font-serif);
+  font-size: var(--pg1-headline-md-size);
+  line-height: var(--pg1-headline-md-line);
+  font-weight: var(--pg1-headline-md-weight);
+}
+
+/* Links */
+a {
+  color: var(--pg1-color-academic-blue);
+  text-decoration: none;
+}
+
+a:hover,
+a:focus-visible {
+  text-decoration: underline;
+}
+
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible {
+  outline: 1.5px solid var(--pg1-color-academic-blue);
+  outline-offset: 2px;
+}
+
+/* Buttons — sharp corners, no shadow, no gradient.
+   type="submit" reads as the primary action (solid ink fill);
+   type="button" reads as a secondary action (outline only). */
+button {
+  font-family: var(--pg1-font-mono);
+  font-size: var(--pg1-label-mono-size);
+  line-height: var(--pg1-label-mono-line);
+  font-weight: var(--pg1-label-mono-weight);
+  letter-spacing: 0.02em;
+  border-radius: var(--pg1-radius);
+  cursor: pointer;
+  padding: calc(var(--pg1-space-unit) * 3) calc(var(--pg1-space-unit) * 5);
+  transition: background-color 0.1s ease, color 0.1s ease;
+}
+
+button[type='submit'] {
+  background: var(--pg1-color-ink);
+  color: var(--pg1-color-on-primary);
+  border: 1.5px solid var(--pg1-color-ink);
+}
+
+button[type='submit']:hover:not(:disabled) {
+  background: var(--pg1-color-academic-blue);
+  border-color: var(--pg1-color-academic-blue);
+}
+
+button[type='button'] {
+  background: transparent;
+  color: var(--pg1-color-ink);
+  border: 1px solid var(--pg1-color-ink);
+}
+
+button[type='button']:hover:not(:disabled) {
+  background: var(--pg1-ink-wash-05);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Inputs — underline only, no box enclosure. */
+input,
+select {
+  font-family: var(--pg1-font-mono);
+  font-size: var(--pg1-body-md-size);
+  color: var(--pg1-color-ink);
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--pg1-color-outline);
+  border-radius: var(--pg1-radius);
+  padding: calc(var(--pg1-space-unit) * 2) 0;
+}
+
+input[type='file'] {
+  font-size: var(--pg1-label-mono-size);
+  line-height: var(--pg1-label-mono-line);
+}
+
+input[type='file']::file-selector-button {
+  font-family: var(--pg1-font-mono);
+  font-size: var(--pg1-label-mono-size);
+  font-weight: var(--pg1-label-mono-weight);
+  color: var(--pg1-color-ink);
+  background: transparent;
+  border: 1px solid var(--pg1-color-ink);
+  border-radius: var(--pg1-radius);
+  padding: calc(var(--pg1-space-unit) * 2) calc(var(--pg1-space-unit) * 4);
+  margin-right: var(--pg1-node-gap);
+  cursor: pointer;
+}
+
+input[type='file']::file-selector-button:hover {
+  background: var(--pg1-ink-wash-05);
+}
+
+label {
+  display: block;
+  font-family: var(--pg1-font-mono);
+  font-size: var(--pg1-label-mono-size);
+  line-height: var(--pg1-label-mono-line);
+  font-weight: var(--pg1-label-mono-weight);
+  color: var(--pg1-color-ink);
+}
+
+small {
+  display: block;
+  font-family: var(--pg1-font-mono);
+  font-size: var(--pg1-label-mono-sm-size);
+  line-height: var(--pg1-label-mono-sm-line);
+  letter-spacing: var(--pg1-label-mono-sm-tracking);
+  color: var(--pg1-color-outline);
+}
+
+/* Alerts / errors — mono, ink-wash-free, left border in error color. */
+[role='alert'] {
+  font-family: var(--pg1-font-mono);
+  font-size: var(--pg1-label-mono-size);
+  line-height: var(--pg1-label-mono-line);
+  color: var(--pg1-color-error);
+  background: var(--pg1-color-error-container);
+  border-left: 1.5px solid var(--pg1-color-error);
+  padding: var(--pg1-node-gap);
+}
+
+/* Evidence / quote blocks. */
+blockquote {
+  font-family: var(--pg1-font-serif);
+  font-style: italic;
+  border-left: 1px solid var(--pg1-color-academic-blue);
+  padding-left: var(--pg1-node-gap);
+  color: var(--pg1-color-ink);
+}
+
+/* Tables. */
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th {
+  font-family: var(--pg1-font-mono);
+  font-size: var(--pg1-label-mono-sm-size);
+  font-weight: var(--pg1-label-mono-weight);
+  letter-spacing: var(--pg1-label-mono-sm-tracking);
+  text-transform: uppercase;
+  text-align: left;
+  color: var(--pg1-color-outline);
+  border-bottom: var(--pg1-border-structural);
+  padding: calc(var(--pg1-space-unit) * 2) var(--pg1-space-unit);
+}
+
+td {
+  font-family: var(--pg1-font-serif);
+  font-size: var(--pg1-body-md-size);
+  border-bottom: var(--pg1-border-hairline);
+  padding: calc(var(--pg1-space-unit) * 2) var(--pg1-space-unit);
+}

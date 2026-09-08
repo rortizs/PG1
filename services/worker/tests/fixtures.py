@@ -24,7 +24,12 @@ def build_minimal_pdf(text: str = "Hello Thesis Text") -> bytes:
         b"/MediaBox [0 0 612 792] /Contents 5 0 R >>",
         b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
     ]
-    stream_content = f"BT /F1 24 Tf 72 700 Td ({text}) Tj ET".encode("latin-1")
+    escaped_text = (
+        text.replace("\\", "\\\\")
+        .replace("(", "\\(")
+        .replace(")", "\\)")
+    )
+    stream_content = f"BT /F1 24 Tf 72 700 Td ({escaped_text}) Tj ET".encode("latin-1")
     objects.append(
         b"<< /Length %d >>\nstream\n" % len(stream_content)
         + stream_content

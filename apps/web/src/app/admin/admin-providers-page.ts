@@ -1,18 +1,24 @@
-import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
-import { FormControl, FormGroup, ReactiveFormsModule } from '@angular/forms';
-import { AdminApiClient } from './admin-api-client';
-import { AdminSecretStore } from './admin-secret-store';
 import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  inject,
+  signal,
+} from "@angular/core";
+import { FormControl, FormGroup, ReactiveFormsModule } from "@angular/forms";
+import { AdminApiClient } from "./admin-api-client";
+import {
+  AdminProviderRole,
   AdminProviderRow,
   buildAdminProvidersViewModel,
   buildCreateProviderPayload,
   buildUpdateProviderPayload,
   extractAdminErrorMessage,
-  isAdminAuthError,
   maskedKeyLabel,
-} from './admin-providers-view';
+} from "./admin-providers-view";
 
-const SUPPORTED_PROVIDER_NAMES = ['claude', 'deepseek', 'groq'] as const;
+const SUPPORTED_PROVIDER_NAMES = ["claude", "deepseek", "groq"] as const;
+const SUPPORTED_PROVIDER_ROLES = ["judgment", "triage"] as const;
 
 /**
  * Admin backoffice page for `llm_provider_config`: list (masked keys, active
@@ -20,22 +26,17 @@ const SUPPORTED_PROVIDER_NAMES = ['claude', 'deepseek', 'groq'] as const;
  * is cleared after every successful save and never pre-filled with a real
  * value when editing an existing row), and a per-row activate action.
  *
- * Every request goes through `AdminApiClient`, which requires the
- * session-scoped `x-admin-secret` (design decision #9) — the first admin
- * action on this page prompts for it; a `403` (wrong secret) clears the
- * cached value so the very next action re-prompts instead of repeating a
- * rejected secret.
+ * Access is gated by the same reviewer session as every other page
+ * (`requireSession` route guard + `sessionInterceptor`) — there is no
+ * separate admin role or secret: any authenticated reviewer can reach this
+ * page, per the confirmed reviewer-authentication design decision D6.
  */
 @Component({
-  selector: 'app-admin-providers-page',
+  selector: "app-admin-providers-page",
   imports: [ReactiveFormsModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <h1>LLM provider admin</h1>
-    <p role="note">
-      Access to this page is gated by a temporary shared secret, NOT real
-      authentication. Never share it outside the admin team.
-    </p>
 
     @if (loadError(); as message) {
       <p role="alert">{{ message }}</p>
@@ -53,6 +54,7 @@ const SUPPORTED_PROVIDER_NAMES = ['claude', 'deepseek', 'groq'] as const;
           <thead>
             <tr>
               <th>Provider</th>
+              <th>Role</th>
               <th>Model</th>
               <th>Key</th>
               <th>Status</th>
@@ -64,13 +66,14 @@ const SUPPORTED_PROVIDER_NAMES = ['claude', 'deepseek', 'groq'] as const;
             @for (row of listItems(); track row.id) {
               <tr>
                 <td>{{ row.provider_name }}</td>
+                <td>{{ row.role }}</td>
                 <td>{{ row.model_id }}</td>
                 <td>{{ maskKey(row) }}</td>
                 <td>
                   @if (row.is_active) {
-                    <span role="status">active</span>
+                    <span role="status" class="status-active">active</span>
                   } @else {
-                    <span role="status">inactive</span>
+                    <span role="status" class="status-inactive">inactive</span>
                   }
                 </td>
                 <td>
@@ -93,21 +96,32 @@ const SUPPORTED_PROVIDER_NAMES = ['claude', 'deepseek', 'groq'] as const;
     }
 
     <h2>{{ editingId() === null ? 'Add provider' : 'Edit provider' }}</h2>
-    <form [formGroup]="form" (submit)="onSubmit($event)">
-      <label>
-        Provider
-        <select formControlName="providerName">
-          @for (name of providerNames; track name) {
-            <option [value]="name">{{ name }}</option>
-          }
-        </select>
-        @if (editingId() !== null) {
-          <small>Provider type cannot be changed on an existing row — activate a new row instead.</small>
-        }
-      </label>
+        <form [formGroup]="form" (submit)="onSubmit($event)">
+          <label>
+            Provider
+            <select formControlName="providerName">
+              @for (name of providerNames; track name) {
+                <option [value]="name">{{ name }}</option>
+              }
+            </select>
+            @if (editingId() !== null) {
+              <small>Provider type cannot be changed on an existing row — activate a new row instead.</small>
+            }
+          </label>
 
-      <label>
-        Model id
+          @if (editingId() === null) {
+            <label>
+              Role
+              <select formControlName="role">
+                @for (role of providerRoles; track role) {
+                  <option [value]="role">{{ role }}</option>
+                }
+              </select>
+            </label>
+          }
+
+          <label>
+            Model id
         <input type="text" formControlName="modelId" />
       </label>
 
@@ -138,12 +152,123 @@ const SUPPORTED_PROVIDER_NAMES = ['claude', 'deepseek', 'groq'] as const;
       <p role="alert">{{ message }}</p>
     }
   `,
+  styles: [
+    `
+    :host {
+      display: block;
+      max-width: 880px;
+      margin: 0 auto;
+      padding: var(--pg1-page-margin) var(--pg1-space-gutter);
+    }
+
+    h1 {
+      margin-bottom: var(--pg1-node-gap);
+    }
+
+    h2 {
+      margin-top: var(--pg1-space-gutter);
+      margin-bottom: var(--pg1-node-gap);
+    }
+
+    p[role='alert'] {
+      margin-bottom: var(--pg1-space-gutter);
+    }
+
+    table {
+      margin-bottom: var(--pg1-space-gutter);
+    }
+
+    /* Status is rendered as literal text with no distinguishing attribute
+       in the template, so a minimal presentational class is unavoidable
+       to tell active/inactive apart visually. */
+    .status-active,
+    .status-inactive {
+      display: inline-block;
+      font-family: var(--pg1-font-mono);
+      font-size: var(--pg1-label-mono-sm-size);
+      letter-spacing: var(--pg1-label-mono-sm-tracking);
+      text-transform: uppercase;
+      padding: calc(var(--pg1-space-unit) * 1) calc(var(--pg1-space-unit) * 2);
+      border: 1px solid currentColor;
+    }
+
+    .status-active {
+      color: var(--pg1-color-academic-blue);
+    }
+
+    .status-inactive {
+      color: var(--pg1-color-outline);
+    }
+
+    /* Edit is the 6th table column, Activate the 7th — targeted
+       structurally so Edit reads as a secondary (outline) action and
+       Activate as the row's primary action, without adding a class. */
+    td:nth-child(6) button {
+      background: transparent;
+      color: var(--pg1-color-ink);
+      border: 1px solid var(--pg1-color-ink);
+    }
+
+    td:nth-child(6) button:hover {
+      background: var(--pg1-ink-wash-05);
+    }
+
+    td:nth-child(7) button {
+      background: var(--pg1-color-ink);
+      color: var(--pg1-color-on-primary);
+      border: 1.5px solid var(--pg1-color-ink);
+    }
+
+    td:nth-child(7) button:hover:not(:disabled) {
+      background: var(--pg1-color-academic-blue);
+      border-color: var(--pg1-color-academic-blue);
+    }
+
+    form {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: var(--pg1-node-gap);
+      padding: var(--pg1-container-padding);
+      border: var(--pg1-border-structural);
+      background: var(--pg1-color-surface-container-low);
+    }
+
+    form label {
+      width: 100%;
+      max-width: 360px;
+      display: flex;
+      flex-direction: column;
+      gap: calc(var(--pg1-space-unit) * 2);
+    }
+
+    form select,
+    form input {
+      width: 100%;
+    }
+
+    form small {
+      margin-top: calc(var(--pg1-space-unit) * 1);
+    }
+
+    /* The lone type="button" inside the form is Cancel: secondary action. */
+    form button[type='button'] {
+      background: transparent;
+      color: var(--pg1-color-ink);
+      border: 1px solid var(--pg1-color-ink);
+    }
+
+    form button[type='button']:hover {
+      background: var(--pg1-ink-wash-05);
+    }
+  `,
+  ],
 })
 export class AdminProvidersPage {
   private readonly api = inject(AdminApiClient);
-  private readonly secretStore = inject(AdminSecretStore);
 
   protected readonly providerNames = SUPPORTED_PROVIDER_NAMES;
+  protected readonly providerRoles = SUPPORTED_PROVIDER_ROLES;
 
   private readonly providers = signal<AdminProviderRow[] | null>(null);
   protected readonly loadError = signal<string | null>(null);
@@ -152,19 +277,26 @@ export class AdminProvidersPage {
   protected readonly editingId = signal<number | null>(null);
 
   protected readonly view = computed(() =>
-    buildAdminProvidersViewModel({ providers: this.providers(), loadError: this.loadError() }),
+    buildAdminProvidersViewModel({
+      providers: this.providers(),
+      loadError: this.loadError(),
+    }),
   );
   protected readonly listItems = computed(() => {
     const current = this.view();
-    return current.kind === 'list' ? current.items : [];
+    return current.kind === "list" ? current.items : [];
   });
 
   protected readonly form = new FormGroup({
-    providerName: new FormControl<(typeof SUPPORTED_PROVIDER_NAMES)[number]>('claude', {
-      nonNullable: true,
-    }),
-    modelId: new FormControl('', { nonNullable: true }),
-    apiKey: new FormControl('', { nonNullable: true }),
+    providerName: new FormControl<(typeof SUPPORTED_PROVIDER_NAMES)[number]>(
+      "claude",
+      {
+        nonNullable: true,
+      },
+    ),
+    role: new FormControl<AdminProviderRole>("judgment", { nonNullable: true }),
+    modelId: new FormControl("", { nonNullable: true }),
+    apiKey: new FormControl("", { nonNullable: true }),
   });
 
   constructor() {
@@ -185,7 +317,10 @@ export class AdminProvidersPage {
     const request =
       editingId === null
         ? this.api.createProvider(buildCreateProviderPayload(formValue))
-        : this.api.updateProvider(editingId, buildUpdateProviderPayload(formValue));
+        : this.api.updateProvider(
+            editingId,
+            buildUpdateProviderPayload(formValue),
+          );
 
     request.subscribe({
       next: () => {
@@ -201,7 +336,12 @@ export class AdminProvidersPage {
     this.editingId.set(row.id);
     // The raw API key field is write-only — never pre-filled with the
     // stored (already-masked-server-side) value.
-    this.form.setValue({ providerName: this.asProviderName(row.provider_name), modelId: row.model_id, apiKey: '' });
+    this.form.setValue({
+      providerName: this.asProviderName(row.provider_name),
+      role: row.role,
+      modelId: row.model_id,
+      apiKey: "",
+    });
   }
 
   protected onCancelEdit(): void {
@@ -222,24 +362,33 @@ export class AdminProvidersPage {
         this.providers.set(items);
         this.loadError.set(null);
       },
-      error: (err: unknown) => this.loadError.set(extractAdminErrorMessage(err)),
+      error: (err: unknown) =>
+        this.loadError.set(extractAdminErrorMessage(err)),
     });
   }
 
   private failForm(err: unknown): void {
     this.submitting.set(false);
-    if (isAdminAuthError(err)) this.secretStore.clearSecret();
     this.formError.set(extractAdminErrorMessage(err));
   }
 
   private resetForm(): void {
     this.editingId.set(null);
-    this.form.reset({ providerName: 'claude', modelId: '', apiKey: '' });
+    this.form.reset({
+      providerName: "claude",
+      role: "judgment",
+      modelId: "",
+      apiKey: "",
+    });
   }
 
-  private asProviderName(value: string): (typeof SUPPORTED_PROVIDER_NAMES)[number] {
-    return SUPPORTED_PROVIDER_NAMES.includes(value as (typeof SUPPORTED_PROVIDER_NAMES)[number])
+  private asProviderName(
+    value: string,
+  ): (typeof SUPPORTED_PROVIDER_NAMES)[number] {
+    return SUPPORTED_PROVIDER_NAMES.includes(
+      value as (typeof SUPPORTED_PROVIDER_NAMES)[number],
+    )
       ? (value as (typeof SUPPORTED_PROVIDER_NAMES)[number])
-      : 'claude';
+      : "claude";
   }
 }

@@ -1,9 +1,8 @@
 """Pure unit tests for `app.main.select_llm_provider` and provider protocol wiring.
 
-No network calls anywhere in this file: DeepSeek/Groq/unknown providers MUST
-raise from `.complete()` (never attempt a real request), and Claude selection
-is only introspected via its `_resolve_api_key()`/`_model` attributes unless a
-fake Anthropic SDK module is installed for request-shape tests.
+No real network calls occur in this file: DeepSeek and Claude selection are
+only introspected through their local configuration attributes, while Groq and
+unknown providers still raise from `.complete()` without attempting a request.
 """
 from __future__ import annotations
 
@@ -62,16 +61,18 @@ class ProviderFactoryTest(unittest.TestCase):
         self.assertEqual(provider._resolve_api_key(), "sk-explicit-key")
         self.assertEqual(provider._model, "claude-explicit-model")
 
-    def test_deepseek_provider_complete_raises_without_any_network_call(self):
+    def test_deepseek_selection_returns_real_provider_with_explicit_key_and_model(self):
         from app.main import select_llm_provider
-        from app.providers.llm_provider import ProviderNotImplementedError, PromptBlock
+        from app.providers.deepseek_provider import DeepSeekProvider
 
-        provider = select_llm_provider("deepseek", "sk-deepseek-key", "deepseek-chat")
+        provider = cast(
+            DeepSeekProvider,
+            select_llm_provider("deepseek", "sk-deepseek-key", "deepseek-chat"),
+        )
 
-        with self.assertRaises(ProviderNotImplementedError) as ctx:
-            provider.complete(system_blocks=[PromptBlock("rules")], user_text="any prompt")
-        self.assertIn("deepseek", str(ctx.exception).lower())
-        self.assertNotIn("sk-deepseek-key", str(ctx.exception))
+        self.assertIsInstance(provider, DeepSeekProvider)
+        self.assertEqual(provider._resolve_api_key(), "sk-deepseek-key")
+        self.assertEqual(provider._model, "deepseek-chat")
 
     def test_groq_provider_complete_raises_without_any_network_call(self):
         from app.main import select_llm_provider

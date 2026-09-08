@@ -62,6 +62,13 @@ SYSTEM_PROMPT = (
 
 CONTEXT_LABEL = "CONTEXT ONLY — do not report findings from this block"
 
+TRIAGE_SYSTEM_PROMPT = (
+    "You are a fast thesis-review triage classifier. Decide whether the current "
+    "chunk plausibly contains any academic-writing or normative-compliance issue "
+    "that needs judgment review. Respond with ONLY JSON: {\"suspect\": true} "
+    "or {\"suspect\": false}. When uncertain, choose true."
+)
+
 
 class CagReviewError(RuntimeError):
     """Raised when the provider response cannot be trusted — never fabricated."""
@@ -244,6 +251,21 @@ def _parse_response(raw: str) -> dict[str, Any]:
     return payload
 
 
+def _triage_says_suspect(triage_provider: LLMProvider, chunk: _Chunk) -> bool:
+    completion = triage_provider.complete(
+        system_blocks=[PromptBlock(TRIAGE_SYSTEM_PROMPT)],
+        user_text=chunk.text,
+        max_tokens=128,
+    )
+    try:
+        payload = json.loads(completion.text)
+    except (json.JSONDecodeError, TypeError) as exc:
+        raise CagReviewError("Triage provider returned non-JSON response") from exc
+    if not isinstance(payload, dict) or not isinstance(payload.get("suspect"), bool):
+        raise CagReviewError("Triage provider response missing boolean 'suspect'")
+    return bool(payload["suspect"])
+
+
 def _coerce_confidence(value: Any) -> float:
     if value in (None, ""):
         return 0.5
@@ -379,6 +401,7 @@ def _sort_findings(findings: list[CagFinding]) -> list[CagFinding]:
 def run_cag_review(
     provider: LLMProvider,
     *,
+    triage_provider: LLMProvider | None = None,
     pages: list[dict[str, Any]],
     sections: list[dict[str, Any]] | None = None,
     corpus_dir: Path = DEFAULT_CORPUS_DIR,
@@ -389,6 +412,8 @@ def run_cag_review(
     chunks = _plan_chunks(pages, sections or [])
     stats = {
         "chunks": 0,
+        "triage_skipped": 0,
+        "triage_errors": 0,
         "dropped_low_confidence": 0,
         "dropped_ungrounded": 0,
         "dropped_duplicate": 0,
@@ -398,8 +423,16 @@ def run_cag_review(
     accepted: list[CagFinding] = []
 
     for chunk in chunks:
-        completion = provider.complete(system_blocks=system_blocks, user_text=chunk.text)
         stats["chunks"] += 1
+        if triage_provider is not None:
+            try:
+                if not _triage_says_suspect(triage_provider, chunk):
+                    stats["triage_skipped"] += 1
+                    continue
+            except Exception:
+                stats["triage_errors"] += 1
+
+        completion = provider.complete(system_blocks=system_blocks, user_text=chunk.text)
         stats["cache_read_tokens"] += completion.cache_read_tokens or 0
         stats["cache_write_tokens"] += completion.cache_write_tokens or 0
         payload = _parse_response(completion.text)

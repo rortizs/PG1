@@ -14,9 +14,18 @@ from pydantic import BaseModel, Field
 
 from .cag_review import CagReviewError, run_cag_review
 from .extraction import ExtractionError, UnsupportedContentTypeError, extract_text
-from .providers.anthropic_provider import AnthropicProvider, AnthropicProviderConfigError
+from .providers.anthropic_provider import (
+    AnthropicProvider,
+    AnthropicProviderConfigError,
+    AnthropicProviderUpstreamError,
+)
+from .providers.deepseek_provider import (
+    DeepSeekProvider,
+    DeepSeekProviderConfigError,
+    DeepSeekProviderUpstreamError,
+)
 from .providers.llm_provider import LLMProvider, ProviderNotImplementedError
-from .providers.unimplemented_provider import DeepSeekProvider, GroqProvider, UnimplementedProvider
+from .providers.unimplemented_provider import GroqProvider, UnimplementedProvider
 from .rules import run_rules
 
 WORKER_SERVICE_NAME = "pg1-document-ai-worker"
@@ -80,10 +89,11 @@ def select_llm_provider(
     provider_name: str | None, api_key: str | None, model_id: str | None
 ) -> LLMProvider:
     """Selects (never fails here) the provider implementation for a review
-    request. Any failure — DeepSeek/Groq not implemented, or an unknown
-    provider_name — is deferred to `.complete()` so it is always caught by
-    `internal_review`'s try/except below, never left unhandled at FastAPI's
-    dependency-resolution stage.
+    request. Any provider failure — missing credentials, upstream errors,
+    registry-only providers such as Groq, or an unknown provider_name — is
+    deferred to `.complete()` so it is always caught by `internal_review`'s
+    try/except below, never left unhandled at FastAPI's dependency-resolution
+    stage.
     """
     name = (provider_name or "claude").strip().lower()
     if name == "claude":
@@ -104,8 +114,8 @@ def select_llm_provider(
 def get_judgment_provider(payload: ReviewRequest) -> LLMProvider:
     # Constructing the returned provider never makes a network call — the
     # key/credential is only read/required inside `.complete()`, at actual
-    # call time. Work Unit 8 makes the judgment provider explicit in the
-    # structured request body; triage remains optional/no-op until Work Unit 10.
+    # call time. The judgment provider is explicit in the structured request
+    # body; the optional triage provider is resolved inside `internal_review`.
     provider_config = payload.judgment_provider
     return select_llm_provider(
         provider_config.provider_name,
@@ -149,9 +159,17 @@ def create_app() -> FastAPI:
     def internal_review(
         payload: ReviewRequest, provider: LLMProvider = Depends(get_judgment_provider)
     ):
+        triage_provider = None
+        if payload.triage_provider is not None:
+            triage_provider = select_llm_provider(
+                payload.triage_provider.provider_name,
+                payload.triage_provider.api_key,
+                payload.triage_provider.model_id,
+            )
         try:
             result = run_cag_review(
                 provider,
+                triage_provider=triage_provider,
                 pages=[page.model_dump() for page in payload.pages],
                 sections=[section.model_dump() for section in payload.sections],
             )
@@ -159,10 +177,12 @@ def create_app() -> FastAPI:
             raise HTTPException(
                 status_code=501, detail=f"not_implemented: {exc}"
             ) from exc
-        except AnthropicProviderConfigError as exc:
+        except (AnthropicProviderConfigError, DeepSeekProviderConfigError) as exc:
             raise HTTPException(
                 status_code=500, detail=f"configuration_error: {exc}"
             ) from exc
+        except (AnthropicProviderUpstreamError, DeepSeekProviderUpstreamError) as exc:
+            raise HTTPException(status_code=502, detail=f"upstream_error: {exc}") from exc
         except CagReviewError as exc:
             raise HTTPException(status_code=502, detail=str(exc)) from exc
         findings = []

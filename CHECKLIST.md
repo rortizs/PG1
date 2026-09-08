@@ -6,12 +6,14 @@ Last updated: 2026-09-04
 
 ## Current next action
 
-- [ ] Continue `precise-thesis-review-pipeline` Work Unit 10: real `DeepSeekProvider` wired as `triage`.
-  - WU9 implementation and focused verification are complete.
-  - Keep WU10 scoped to the real DeepSeek triage provider and worker triage decision path.
+- [ ] Verify/archive `precise-thesis-review-pipeline` after Work Unit 10.
+  - WU10 implementation and worker verification are complete.
+  - Manual DeepSeek triage smoke with a real `DEEPSEEK_API_KEY` remains optional follow-up evidence.
 
 ## Recently completed
 
+- [x] Complete `precise-thesis-review-pipeline` Work Unit 10: real `DeepSeekProvider` wired as `triage`.
+  - Evidence: real `httpx` DeepSeek provider, factory wiring, optional triage fail-open behavior, credential non-leak tests, focused worker **37 tests OK**, full worker **124 tests OK**.
 - [x] Complete `precise-thesis-review-pipeline` Work Unit 9: role-based provider assignment.
   - Evidence: provider role migrations `0008`/`0009`, per-role active provider repository/admin/API/UI wiring, optional triage forwarding plus review-run triage provenance persistence correction, focused correction API **29 pass / 0 fail**, web **70 pass / 0 fail**.
 - [x] Complete `precise-thesis-review-pipeline` Work Unit 8: chunked multi-finding review loop + `/internal/review` contract.
@@ -35,7 +37,7 @@ Last updated: 2026-09-04
 
 | Change | Status | Next |
 | --- | --- | --- |
-| `precise-thesis-review-pipeline` | Active; Work Units 1–9 complete, 10 pending | Continue Work Unit 10: real DeepSeek triage provider |
+| `precise-thesis-review-pipeline` | Active; Work Units 1–10 complete | Verify/archive the completed change |
 | `mvp-academic-review-core` | Active legacy backlog; Work Units 1–5 complete, 6–16 pending | Reconcile overlap before using it as the driving backlog |
 
 ## Root legacy checklist reconciliation

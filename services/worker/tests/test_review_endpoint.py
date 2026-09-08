@@ -16,14 +16,17 @@ from fastapi.testclient import TestClient
 
 
 class FakeLLMProvider:
-    def __init__(self, response_text: str | None = None):
+    def __init__(self, response_text: str | None = None, *, error: Exception | None = None):
         self.response_text = response_text or json.dumps({"findings": []})
+        self.error = error
         self.calls: list[dict] = []
 
     def complete(self, *, system_blocks, user_text: str, max_tokens: int = 2048):
         from app.providers.llm_provider import CompletionResult
 
         self.calls.append({"system_blocks": system_blocks, "user_text": user_text})
+        if self.error is not None:
+            raise self.error
         return CompletionResult(text=self.response_text, cache_read_tokens=0, cache_write_tokens=5)
 
 
@@ -32,10 +35,13 @@ class ReviewEndpointTest(unittest.TestCase):
         self.main = importlib.import_module("app.main")
         self.client = TestClient(self.main.create_app())
         self._previous_api_key = os.environ.pop("ANTHROPIC_API_KEY", None)
+        self._previous_deepseek_api_key = os.environ.pop("DEEPSEEK_API_KEY", None)
 
     def tearDown(self):
         if self._previous_api_key is not None:
             os.environ["ANTHROPIC_API_KEY"] = self._previous_api_key
+        if self._previous_deepseek_api_key is not None:
+            os.environ["DEEPSEEK_API_KEY"] = self._previous_deepseek_api_key
 
     def _review_payload(
         self,
@@ -120,21 +126,20 @@ class ReviewEndpointTest(unittest.TestCase):
         self.assertEqual(response.status_code, 500)
         self.assertIn("configuration_error", response.json()["detail"])
 
-    def test_deepseek_judgment_provider_returns_explicit_not_implemented_never_falls_back_to_claude(self):
+    def test_deepseek_judgment_provider_missing_credentials_returns_configuration_error_never_falls_back_to_claude(self):
         response = self.client.post(
             "/internal/review",
             json=self._review_payload(
                 provider_name="deepseek",
-                api_key="sk-deepseek-must-never-leak",
+                api_key=None,
                 model_id="deepseek-chat",
             ),
         )
 
-        self.assertEqual(response.status_code, 501)
+        self.assertEqual(response.status_code, 500)
         detail = response.json()["detail"]
-        self.assertIn("not_implemented", detail)
+        self.assertIn("configuration_error", detail)
         self.assertIn("deepseek", detail.lower())
-        self.assertNotIn("sk-deepseek-must-never-leak", detail)
 
     def test_groq_judgment_provider_returns_explicit_not_implemented_never_falls_back_to_claude(self):
         response = self.client.post(
@@ -165,6 +170,60 @@ class ReviewEndpointTest(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["findings"], [])
+
+    def test_triage_provider_error_fails_open_without_leaking_triage_key(self):
+        secret = "sk-triage-secret-must-not-leak"
+        judgment_provider = FakeLLMProvider(
+            json.dumps(
+                {
+                    "findings": [
+                        {
+                            "title": "Judgment still runs",
+                            "explanation": "Explanation.",
+                            "recommendation": "Recommendation.",
+                            "evidence_text": "Live endpoint grounded excerpt.",
+                            "page_number": 1,
+                            "section_index": 0,
+                            "normative_source_ref": "lineamientos_ingenieria_sistemas.txt",
+                            "severity": "medium",
+                            "confidence": 0.9,
+                        }
+                    ]
+                }
+            )
+        )
+        triage_provider = FakeLLMProvider(error=RuntimeError(f"triage failed {secret}"))
+        app = cast(Any, self.client.app)
+        main_module = cast(Any, self.main)
+        original_select = main_module.select_llm_provider
+
+        def select_spy(provider_name, api_key, model_id):
+            if provider_name == "deepseek":
+                self.assertEqual(api_key, secret)
+                return triage_provider
+            return original_select(provider_name, api_key, model_id)
+
+        app.dependency_overrides[main_module.get_judgment_provider] = lambda: judgment_provider
+        main_module.select_llm_provider = select_spy
+        try:
+            payload = self._review_payload()
+            payload["triage_provider"] = {
+                "provider_name": "deepseek",
+                "api_key": secret,
+                "model_id": "deepseek-chat",
+            }
+            response = self.client.post("/internal/review", json=payload)
+        finally:
+            app.dependency_overrides.clear()
+            main_module.select_llm_provider = original_select
+
+        self.assertEqual(response.status_code, 200)
+        body_text = response.text
+        self.assertNotIn(secret, body_text)
+        body = response.json()
+        self.assertEqual(body["findings"][0]["title"], "Judgment still runs")
+        self.assertEqual(body["stats"]["triage_errors"], 1)
+        self.assertEqual(len(judgment_provider.calls), 1)
 
     def test_internal_rules_never_calls_llm_provider_selection(self):
         main = cast(Any, importlib.import_module("app.main"))

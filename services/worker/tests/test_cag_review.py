@@ -181,6 +181,95 @@ class CagReviewTest(unittest.TestCase):
         self.assertEqual(len(result.findings), 1)
         self.assertIsNone(result.findings[0].section_index)
 
+    def test_triage_not_suspect_skips_judgment_for_that_chunk(self):
+        from app.cag_review import run_cag_review
+
+        judgment_provider = FakeLLMProvider()
+        triage_provider = FakeLLMProvider(responses=[json.dumps({"suspect": False})])
+
+        result = run_cag_review(
+            judgment_provider,
+            triage_provider=triage_provider,
+            pages=self._pages(1),
+            sections=[],
+        )
+
+        self.assertEqual(judgment_provider.received_calls, [])
+        self.assertEqual(len(triage_provider.received_calls), 1)
+        self.assertEqual(result.findings, [])
+        self.assertEqual(result.stats["chunks"], 1)
+        self.assertEqual(result.stats["triage_skipped"], 1)
+        self.assertEqual(result.stats["triage_errors"], 0)
+
+    def test_triage_suspect_runs_judgment_for_that_chunk(self):
+        from app.cag_review import run_cag_review
+
+        triage_provider = FakeLLMProvider(responses=[json.dumps({"suspect": True})])
+        judgment_provider = FakeLLMProvider(
+            responses=[
+                json.dumps(
+                    {
+                        "findings": [
+                            finding_payload(
+                                title="Judged issue",
+                                evidence_text="Grounded issue 1 appears here.",
+                                page_number=1,
+                                section_index=None,
+                            )
+                        ]
+                    }
+                )
+            ]
+        )
+
+        result = run_cag_review(
+            judgment_provider,
+            triage_provider=triage_provider,
+            pages=self._pages(1),
+            sections=[],
+        )
+
+        self.assertEqual(len(triage_provider.received_calls), 1)
+        self.assertEqual(len(judgment_provider.received_calls), 1)
+        self.assertEqual([finding.title for finding in result.findings], ["Judged issue"])
+        self.assertEqual(result.stats["triage_skipped"], 0)
+        self.assertEqual(result.stats["triage_errors"], 0)
+
+    def test_triage_error_fails_open_into_judgment_without_leaking_triage_key(self):
+        from app.cag_review import run_cag_review
+
+        secret = "sk-triage-secret-must-not-leak"
+        triage_provider = FakeLLMProvider(error=RuntimeError(f"upstream failed {secret}"))
+        judgment_provider = FakeLLMProvider(
+            responses=[
+                json.dumps(
+                    {
+                        "findings": [
+                            finding_payload(
+                                title="Judged after triage failure",
+                                evidence_text="Grounded issue 1 appears here.",
+                                page_number=1,
+                                section_index=None,
+                            )
+                        ]
+                    }
+                )
+            ]
+        )
+
+        result = run_cag_review(
+            judgment_provider,
+            triage_provider=triage_provider,
+            pages=self._pages(1),
+            sections=[],
+        )
+
+        self.assertEqual(len(judgment_provider.received_calls), 1)
+        self.assertEqual(result.stats["triage_errors"], 1)
+        self.assertNotIn(secret, json.dumps(result.stats))
+        self.assertNotIn(secret, repr(result.findings))
+        self.assertEqual([finding.title for finding in result.findings], ["Judged after triage failure"])
+
     def test_confidence_grounding_and_dedup_filters_drop_candidates_without_merging(self):
         from app.cag_review import run_cag_review
 

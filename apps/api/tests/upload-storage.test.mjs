@@ -4,6 +4,27 @@ import { createHash } from "node:crypto";
 import { handleApiRequest } from "../src/api-contract.mjs";
 import { createMemoryObjectStorage } from "../src/storage/object-storage.mjs";
 import { processThesisDocumentUpload } from "../src/thesis-documents/upload-service.mjs";
+import { createAuthenticatedSession } from "./support/reviewer-session-fixture.mjs";
+
+const DEFAULT_LOCAL_DATABASE_URL = "postgres://pg1:pg1@localhost:5432/pg1";
+const databaseUrl = process.env.DATABASE_URL ?? DEFAULT_LOCAL_DATABASE_URL;
+
+async function connectOrSkip(t) {
+	const { default: pg } = await import("pg");
+	const client = new pg.Client({
+		connectionString: databaseUrl,
+		connectionTimeoutMillis: 2000,
+	});
+	try {
+		await client.connect();
+	} catch (error) {
+		t.skip(
+			`DATABASE_URL not reachable (${databaseUrl}) — start Docker Postgres via infra/docker-compose.yml to run this integration test: ${error.message}`,
+		);
+		return null;
+	}
+	return client;
+}
 
 const DOCX_TYPE =
 	"application/vnd.openxmlformats-officedocument.wordprocessingml.document";
@@ -148,18 +169,41 @@ test("upload requires exactly one file and leaves storage untouched on rejection
 	assert.equal(storage.listKeys().length, 0);
 });
 
-test("API contract delegates upload validation when file input is provided", async () => {
-	const response = await handleApiRequest({
-		method: "POST",
-		path: "/api/v1/thesis-documents",
-		body: {
-			files: [file({ filename: "api.pdf", content: "api content" })],
-			uploaderUserId: 11,
-		},
-	});
+// reviewer-authentication PR3a: `POST /api/v1/thesis-documents` now sits
+// behind the deny-by-default session gate — needs a real reviewer session
+// and a migrated schema.
+test("API contract delegates upload validation when file input is provided", async (t) => {
+	const client = await connectOrSkip(t);
+	if (!client) return;
+	try {
+		const migrate = await import("../src/db/migrate.mjs");
+		await migrate.migrateDown({ client }).catch(() => {});
+		await migrate.migrateUp({ client });
+		await client.end();
 
-	assert.equal(response.status, 201);
-	assert.equal(response.body.status, "uploaded");
-	assert.equal(response.body.original_filename, "api.pdf");
-	assert.equal(response.body.review_eligible, true);
+		process.env.DATABASE_URL = databaseUrl;
+		const session = await createAuthenticatedSession({ connectionString: databaseUrl });
+
+		const response = await handleApiRequest({
+			method: "POST",
+			path: "/api/v1/thesis-documents",
+			body: {
+				files: [file({ filename: "api.pdf", content: "api content" })],
+				uploaderUserId: 11,
+			},
+			headers: session.headers,
+		});
+
+		assert.equal(response.status, 201);
+		assert.equal(response.body.status, "uploaded");
+		assert.equal(response.body.original_filename, "api.pdf");
+		assert.equal(response.body.review_eligible, true);
+	} finally {
+		const { default: pg } = await import("pg");
+		const cleanupClient = new pg.Client({ connectionString: databaseUrl });
+		await cleanupClient.connect();
+		const migrate = await import("../src/db/migrate.mjs");
+		await migrate.migrateDown({ client: cleanupClient }).catch(() => {});
+		await cleanupClient.end();
+	}
 });

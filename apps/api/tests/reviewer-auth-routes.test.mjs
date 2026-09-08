@@ -388,3 +388,13 @@ test(
 					path: "/api/v1/auth/sessions/current",
 					headers: { Authorization: "Bearer totally-unknown-token-value" },
 				});
+				assert.equal(response.status, 204);
+
+				const after = await auditEventsByType(client, "logout");
+				assert.equal(after.length, before.length);
+			});
+		} finally {
+			await client.end();
+		}
+	},
+);

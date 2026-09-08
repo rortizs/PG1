@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
+import { createAuthenticatedSession } from "./support/reviewer-session-fixture.mjs";
 
 const DEFAULT_LOCAL_DATABASE_URL = "postgres://pg1:pg1@localhost:5432/pg1";
 const databaseUrl = process.env.DATABASE_URL ?? DEFAULT_LOCAL_DATABASE_URL;
@@ -18,7 +19,7 @@ const VALID_ENCRYPTION_KEY = "c".repeat(64); // 64 hex chars = 32 bytes
  */
 function startFakeWorker() {
 	let lastReviewBody = null;
-	let nextReview = { status: 200, body: { finding: null } };
+	let nextReview = { status: 200, body: { findings: [], stats: { chunks: 0 } } };
 	const server = createServer((req, res) => {
 		const chunks = [];
 		req.on("data", (chunk) => chunks.push(chunk));
@@ -87,17 +88,19 @@ async function connectOrSkip(t) {
 	return client;
 }
 
-async function triggerRun({ handleApiRequest, filename }) {
+async function triggerRun({ handleApiRequest, filename, headers }) {
 	const uploadRes = await handleApiRequest({
 		method: "POST",
 		path: "/api/v1/thesis-documents",
 		body: { files: [pdfFile(filename)], uploaderUserId: 1 },
+		headers,
 	});
 	assert.equal(uploadRes.status, 201);
 	return handleApiRequest({
 		method: "POST",
 		path: `/api/v1/thesis-documents/${uploadRes.body.id}/review-runs`,
 		body: {},
+		headers,
 	});
 }
 
@@ -107,99 +110,191 @@ async function triggerRun({ handleApiRequest, filename }) {
  * failure, per-run re-resolution across a provider switch (no restart), and
  * no raw-key leak into `error_summary` on a downstream worker failure.
  */
-test(
-	"active-provider resolution: zero-active fails explicitly, switching providers re-resolves per run, and a downstream failure never leaks the raw key",
-	async (t) => {
-		const client = await connectOrSkip(t);
-		if (!client) return;
+test("active-provider resolution: zero-active fails explicitly, switching providers re-resolves per run, and a downstream failure never leaks the raw key", async (t) => {
+	const client = await connectOrSkip(t);
+	if (!client) return;
 
-		const migrate = await import("../src/db/migrate.mjs");
-		await migrate.migrateDown({ client }).catch(() => {});
-		await migrate.migrateUp({ client });
-		await client.end();
+	const migrate = await import("../src/db/migrate.mjs");
+	await migrate.migrateDown({ client }).catch(() => {});
+	await migrate.migrateUp({ client });
+	await client.end();
 
-		process.env.DATABASE_URL = databaseUrl;
-		process.env.LLM_PROVIDER_ENCRYPTION_KEY = VALID_ENCRYPTION_KEY;
-		delete process.env.ANTHROPIC_API_KEY;
+	process.env.DATABASE_URL = databaseUrl;
+	process.env.LLM_PROVIDER_ENCRYPTION_KEY = VALID_ENCRYPTION_KEY;
+	delete process.env.ANTHROPIC_API_KEY;
 
-		const worker = await startFakeWorker();
-		process.env.WORKER_BASE_URL = worker.url;
+	const worker = await startFakeWorker();
+	process.env.WORKER_BASE_URL = worker.url;
 
-		const { handleApiRequest } = await import("../src/api-contract.mjs");
-		const { _resetLiveReviewPipelineForTests } = await import(
-			"../src/live-review-pipeline.mjs"
+	const { handleApiRequest } = await import("../src/api-contract.mjs");
+	const { _resetLiveReviewPipelineForTests } = await import(
+		"../src/live-review-pipeline.mjs"
+	);
+	const { createProviderConfigRepository } = await import(
+		"../src/db/provider-config-repository.mjs"
+	);
+	_resetLiveReviewPipelineForTests();
+
+	// reviewer-authentication PR3a: every `handleApiRequest` call below now
+	// sits behind the deny-by-default session gate.
+	const session = await createAuthenticatedSession({
+		connectionString: databaseUrl,
+	});
+	const headers = session.headers;
+
+	try {
+		// --- Scenario 1: zero active providers -> explicit failure, worker never even called ---
+		const runZeroActive = await triggerRun({
+			handleApiRequest,
+			filename: "zero-active.pdf",
+			headers,
+		});
+		assert.equal(runZeroActive.status, 202);
+		assert.equal(runZeroActive.body.status, "failed");
+		assert.match(
+			runZeroActive.body.error_summary,
+			/no active judgment provider configured/i,
 		);
-		const { createProviderConfigRepository } = await import(
-			"../src/db/provider-config-repository.mjs"
+		assert.equal(
+			worker.getLastReviewBody(),
+			null,
+			"resolution must fail before any /internal/review request is attempted",
 		);
-		_resetLiveReviewPipelineForTests();
 
-		try {
-			// --- Scenario 1: zero active providers -> explicit failure, worker never even called ---
-			const runZeroActive = await triggerRun({ handleApiRequest, filename: "zero-active.pdf" });
-			assert.equal(runZeroActive.status, 202);
-			assert.equal(runZeroActive.body.status, "failed");
-			assert.match(runZeroActive.body.error_summary, /no active LLM provider configured/i);
-			assert.equal(
-				worker.getLastReviewBody(),
-				null,
-				"resolution must fail before any /internal/review request is attempted",
-			);
+		// --- Scenario 2: activate provider one -> run completes, forwarding its exact fields ---
+		const repository = createProviderConfigRepository({
+			connectionString: databaseUrl,
+		});
+		const providerOne = await repository.create({
+			providerName: "claude",
+			role: "judgment",
+			modelId: "claude-model-one",
+			apiKey: "sk-ant-provider-one-secret",
+		});
+		await repository.activate(providerOne.id);
 
-			// --- Scenario 2: activate provider one -> run completes, forwarding its exact fields ---
-			const repository = createProviderConfigRepository({ connectionString: databaseUrl });
-			const providerOne = await repository.create({
-				providerName: "claude",
-				modelId: "claude-model-one",
-				apiKey: "sk-ant-provider-one-secret",
-			});
-			await repository.activate(providerOne.id);
-
-			const runOne = await triggerRun({ handleApiRequest, filename: "provider-one.pdf" });
-			assert.equal(runOne.body.status, "completed");
-			assert.deepEqual(worker.getLastReviewBody(), {
-				thesis_text: "Active-provider-resolution test thesis excerpt.",
+		const runOne = await triggerRun({
+			handleApiRequest,
+			filename: "provider-one.pdf",
+			headers,
+		});
+		assert.equal(runOne.body.status, "completed");
+		assert.deepEqual(worker.getLastReviewBody(), {
+			pages: [
+				{
+					page_number: 1,
+					section_title: null,
+					text: "excerpt",
+				},
+			],
+			sections: [],
+			judgment_provider: {
 				provider_name: "claude",
 				api_key: "sk-ant-provider-one-secret",
 				model_id: "claude-model-one",
-			});
+			},
+			triage_provider: null,
+		});
 
-			// --- Scenario 3: switch active provider mid-session, no restart -> next run re-resolves fresh ---
-			const providerTwo = await repository.create({
-				providerName: "claude",
-				modelId: "claude-model-two",
-				apiKey: "sk-ant-provider-two-secret",
-			});
-			await repository.activate(providerTwo.id);
+		// --- Scenario 2b: activating triage leaves judgment active and forwards both roles ---
+		const triageProvider = await repository.create({
+			providerName: "deepseek",
+			role: "triage",
+			modelId: "deepseek-chat",
+			apiKey: "sk-deepseek-triage-secret",
+		});
+		await repository.activate(triageProvider.id);
 
-			const runTwo = await triggerRun({ handleApiRequest, filename: "provider-two.pdf" });
-			assert.equal(runTwo.body.status, "completed");
-			assert.deepEqual(worker.getLastReviewBody(), {
-				thesis_text: "Active-provider-resolution test thesis excerpt.",
+		const runWithTriage = await triggerRun({
+			handleApiRequest,
+			filename: "provider-one-plus-triage.pdf",
+			headers,
+		});
+		assert.equal(runWithTriage.body.status, "completed");
+		assert.deepEqual(worker.getLastReviewBody(), {
+			pages: [
+				{
+					page_number: 1,
+					section_title: null,
+					text: "excerpt",
+				},
+			],
+			sections: [],
+			judgment_provider: {
+				provider_name: "claude",
+				api_key: "sk-ant-provider-one-secret",
+				model_id: "claude-model-one",
+			},
+			triage_provider: {
+				provider_name: "deepseek",
+				api_key: "sk-deepseek-triage-secret",
+				model_id: "deepseek-chat",
+			},
+		});
+
+		// --- Scenario 3: switch active provider mid-session, no restart -> next run re-resolves fresh ---
+		const providerTwo = await repository.create({
+			providerName: "claude",
+			role: "judgment",
+			modelId: "claude-model-two",
+			apiKey: "sk-ant-provider-two-secret",
+		});
+		await repository.activate(providerTwo.id);
+
+		const runTwo = await triggerRun({
+			handleApiRequest,
+			filename: "provider-two.pdf",
+			headers,
+		});
+		assert.equal(runTwo.body.status, "completed");
+		assert.deepEqual(worker.getLastReviewBody(), {
+			pages: [
+				{
+					page_number: 1,
+					section_title: null,
+					text: "excerpt",
+				},
+			],
+			sections: [],
+			judgment_provider: {
 				provider_name: "claude",
 				api_key: "sk-ant-provider-two-secret",
 				model_id: "claude-model-two",
-			});
+			},
+			triage_provider: {
+				provider_name: "deepseek",
+				api_key: "sk-deepseek-triage-secret",
+				model_id: "deepseek-chat",
+			},
+		});
 
-			// --- Scenario 4: downstream worker failure while provider two is active -> failed, no key leak ---
-			worker.setNextReview(502, {
-				detail: "Claude API call failed: upstream timeout",
-			});
-			const runFailure = await triggerRun({ handleApiRequest, filename: "provider-two-failure.pdf" });
-			assert.equal(runFailure.body.status, "failed");
-			assert.ok(runFailure.body.error_summary);
-			assert.doesNotMatch(
-				runFailure.body.error_summary,
-				/sk-ant-provider-two-secret/,
-				"error_summary must never contain the active provider's raw api key",
-			);
-		} finally {
-			await worker.close();
-			const { default: pg } = await import("pg");
-			const cleanupClient = new pg.Client({ connectionString: databaseUrl });
-			await cleanupClient.connect();
-			await migrate.migrateDown({ client: cleanupClient }).catch(() => {});
-			await cleanupClient.end();
-		}
-	},
-);
+		// --- Scenario 4: downstream worker failure while provider two is active -> failed, no key leak ---
+		worker.setNextReview(502, {
+			detail: "Claude API call failed: upstream timeout",
+		});
+		const runFailure = await triggerRun({
+			handleApiRequest,
+			filename: "provider-two-failure.pdf",
+			headers,
+		});
+		assert.equal(runFailure.body.status, "failed");
+		assert.ok(runFailure.body.error_summary);
+		assert.doesNotMatch(
+			runFailure.body.error_summary,
+			/sk-ant-provider-two-secret/,
+			"error_summary must never contain the active provider's raw api key",
+		);
+	} finally {
+		await worker.close();
+		const { default: pg } = await import("pg");
+		const cleanupClient = new pg.Client({ connectionString: databaseUrl });
+		await cleanupClient.connect();
+		await cleanupClient
+			.query(
+				"UPDATE llm_provider_config SET is_active = false WHERE role = 'triage'",
+			)
+			.catch(() => {});
+		await migrate.migrateDown({ client: cleanupClient }).catch(() => {});
+		await cleanupClient.end();
+	}
+});

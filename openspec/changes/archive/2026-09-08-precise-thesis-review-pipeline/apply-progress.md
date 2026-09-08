@@ -388,3 +388,76 @@ None — every RED front (Work Unit 4's single `test_rules.py` run, Work Unit 5'
 
 ## Test Commands Run (PR6 / WU9)
 
+| Phase | Command | Result |
+| --- | --- | --- |
+| WU9 RED (web pure view) | `pnpm --dir apps/web test -- tests/admin-providers-view.test.mjs` | Failed before production changes: `buildCreateProviderPayload includes role...` actual payload omitted `role: 'triage'`. |
+| WU9 RED (API focused) | `cd apps/api && node --import tsx --test --test-concurrency=1 tests/admin-contract.test.mjs tests/review-orchestrator.test.mjs tests/active-provider-resolution.test.mjs tests/provider-config-repository.test.mjs tests/llm-provider-config-migration.test.mjs` | Failed before production changes: old zero-active message, admin role cases returned `503` instead of 422, repository rows returned `role: undefined`, invalid role did not reject, migration insert failed because `role` column did not exist, and orchestrator omitted triage provenance. |
+| WU9 GREEN (web suite through package runner) | `pnpm --dir apps/web test -- tests/admin-providers-view.test.mjs` | **70 pass / 0 fail**. |
+| WU9 GREEN (migration/repository focused) | `cd apps/api && node --import tsx --test --test-concurrency=1 tests/llm-provider-config-migration.test.mjs tests/provider-config-repository.test.mjs` | **3 pass / 0 fail**. Includes migration up/down cycle and the ambiguous DOWN failure assertion. |
+| WU9 GREEN (API focused) | `cd apps/api && node --import tsx --test --test-concurrency=1 tests/admin-contract.test.mjs tests/review-orchestrator.test.mjs tests/active-provider-resolution.test.mjs tests/provider-config-repository.test.mjs tests/llm-provider-config-migration.test.mjs` | **26 pass / 0 fail**. |
+
+## Scope Notes / Follow-ups (PR6 / WU9)
+
+- Real DeepSeek triage behavior remains intentionally out of scope for Work Unit 10. WU9 only resolves and forwards the optional triage provider payload; the worker still treats triage as optional/no-op until WU10.
+- WU9 correction: `apps/api/src/db/review-repository.mjs` now persists `triageProviderName`/`triageModelId` into nullable `review_run.triage_provider_name`/`triage_model_id` through `updateReviewRunStatus`; focused API verification covers repository persistence, orchestrator forwarding, and admin role-null validation.
+
+## Remaining Tasks
+
+- [ ] Work Unit 10 — Real `DeepSeekProvider` wired as `triage` (PR7)
+
+## Change Status
+
+Work Unit 9 implementation and focused verification are complete. Broad final package verification is recorded in the parent handoff for this apply pass.
+
+## Final Verification Evidence (PR6 / WU9)
+
+- `pnpm --dir apps/api test && pnpm --dir apps/web test` without `DATABASE_URL` was attempted first: API reached **155 pass / 1 fail**; the only failure was the pre-existing/environment-scoped `tests/smoke.test.mjs` expectation (`503 !== 401`) when the session guard cannot resolve the reviewer repository without a database URL. This matches the WU8 environment note and is not a WU9 regression.
+- `DATABASE_URL=postgres://pg1:pg1@localhost:5432/pg1 pnpm --dir apps/api test && pnpm --dir apps/web test` passed: API **156 pass / 0 fail**, web **70 pass / 0 fail**.
+- Explicit migration CLI cycle passed against local Postgres: `cd apps/api && DATABASE_URL=postgres://pg1:pg1@localhost:5432/pg1 node --import tsx src/db/migrate.mjs up && DATABASE_URL=postgres://pg1:pg1@localhost:5432/pg1 node --import tsx src/db/migrate.mjs down` printed both `up completed` and `down completed`.
+- WU9 correction focused verification passed: `cd apps/api && node --import tsx --test --test-concurrency=1 tests/review-repository.test.mjs tests/admin-contract.test.mjs tests/review-orchestrator.test.mjs` reported **29 pass / 0 fail** after RED failures for missing triage persistence and explicit-null role handling.
+
+---
+
+# PR7 — Real DeepSeek Triage (Work Unit 10)
+
+## Completed Implementation Tasks
+
+- [x] Work Unit 10 RED: Added `services/worker/tests/test_deepseek_provider.py` plus triage-focused updates to `test_provider_factory.py`, `test_cag_review.py`, and `test_review_endpoint.py` before production changes. The focused RED run failed for the expected missing behavior: `app.providers.deepseek_provider` did not exist, `select_llm_provider("deepseek")` still returned the unimplemented provider, `run_cag_review()` did not accept `triage_provider`, `/internal/review` returned `501 not_implemented` for DeepSeek judgment, and triage stats were absent.
+- [x] Work Unit 10 GREEN: Created `services/worker/app/providers/deepseek_provider.py` using `httpx.Client` only; it lazily resolves explicit API key then `DEEPSEEK_API_KEY`, resolves `DEEPSEEK_BASE_URL` with default `https://api.deepseek.com`, posts to `/chat/completions`, maps `choices[0].message.content` and DeepSeek cache usage fields to `CompletionResult`, and raises typed config/upstream errors. `main.py` now wires `deepseek` to the real provider and passes optional `triage_provider` into `run_cag_review()`. `cag_review.py` now calls triage before judgment, skips judgment when triage says `suspect: false`, and fails open into judgment when triage errors or returns unusable output.
+- [x] Work Unit 10 TRIANGULATE: Tests cover missing DeepSeek key, explicit-key-over-env precedence, env-key fallback, upstream 4xx/5xx, missing text choices, suspect/not-suspect triage decisions, and triage provider failure without leaking the triage API key into response/error-shaped output.
+- [x] Work Unit 10 REFACTOR: Provider shape remains aligned with the cache-aware `LLMProvider.complete()` protocol; DeepSeek-specific request assembly and parsing helpers are private to `deepseek_provider.py`, while triage decision handling stays private to `cag_review.py`.
+- [x] Work Unit 10 Verify: Focused RED/GREEN worker tests and full worker package verification passed. A live DeepSeek triage smoke with a real `DEEPSEEK_API_KEY` was not performed in this delegated pass because no real credential was provided; automated tests prove the `stats.triage_skipped` judgment-call reduction path.
+
+## Files Changed (PR7 / WU10)
+
+| File | Action | What Was Done |
+|------|--------|---------------|
+| `services/worker/app/providers/deepseek_provider.py` | Created | Real DeepSeek OpenAI-compatible chat-completions provider with lazy key/base-url resolution, sanitized typed config/upstream errors, request-shape mapping, response text extraction, and usage/cache-token mapping. |
+| `services/worker/app/providers/unimplemented_provider.py` | Modified | Removed the registry-only DeepSeek stub; Groq remains unimplemented and fails loudly without touching credentials/network. |
+| `services/worker/app/main.py` | Modified | Imports/wires the real DeepSeek provider, maps DeepSeek config errors to `configuration_error`, maps provider upstream errors to `upstream_error`, and passes optional `triage_provider` into the CAG review loop. |
+| `services/worker/app/cag_review.py` | Modified | Adds triage classification before judgment, `triage_skipped` and `triage_errors` stats, and fail-open behavior for optional triage failures. |
+| `services/worker/tests/test_deepseek_provider.py` | Created | Proves request shape, response/usage mapping, env/default resolution, typed errors, and sanitized upstream failure text without real network calls. |
+| `services/worker/tests/test_provider_factory.py` | Modified | DeepSeek factory assertion now expects the real `DeepSeekProvider` with forwarded explicit key/model. |
+| `services/worker/tests/test_cag_review.py` | Modified | Adds suspect/not-suspect triage behavior and triage-error fail-open credential non-leak coverage. |
+| `services/worker/tests/test_review_endpoint.py` | Modified | Adds endpoint-level triage fail-open credential non-leak coverage and updates DeepSeek judgment missing-key behavior to the real provider. |
+| `openspec/changes/precise-thesis-review-pipeline/tasks.md` | Modified | Marked Work Unit 10 complete with the manual-real-key smoke noted as not performed in this delegated pass. |
+| `openspec/changes/precise-thesis-review-pipeline/apply-progress.md` | Modified | Added this PR7 / Work Unit 10 progress section. |
+| `CHECKLIST.md` | Modified | Updated the operational checklist from WU10 pending to verify/archive next. |
+
+## Test Commands Run (PR7 / WU10)
+
+| Phase | Command | Result |
+| --- | --- | --- |
+| WU10 RED | `cd services/worker && PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. python3 -m unittest tests.test_deepseek_provider tests.test_provider_factory tests.test_cag_review tests.test_review_endpoint -v` | Failed before production changes with `ModuleNotFoundError` / `ImportError` for `app.providers.deepseek_provider`, `TypeError: run_cag_review() got an unexpected keyword argument 'triage_provider'`, endpoint DeepSeek judgment returning `501` instead of the new config error, and missing `stats.triage_errors`. |
+| WU10 GREEN/TRIANGULATE focused | `cd services/worker && PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. python3 -m unittest tests.test_deepseek_provider tests.test_provider_factory tests.test_cag_review tests.test_review_endpoint -v` | **37 tests OK**. Covers DeepSeek request/usage mapping, config/upstream errors, triage skip/suspect/fail-open paths, and credential non-leak assertions. |
+| WU10 worker package verification | `pnpm --dir services/worker test` | **124 tests OK**. Output includes pre-existing FastAPI/Starlette deprecation warning and `EOF marker not found` line, but exits green. |
+
+## Scope Notes / Follow-ups (PR7 / WU10)
+
+- No real DeepSeek API call was made because no real `DEEPSEEK_API_KEY` was provided to this delegated pass. The provider-level tests use a fake `httpx.Client` and assert the exact outbound request shape without contacting the network.
+- Optional triage errors are intentionally not recorded with raw exception text in response stats; only `triage_errors` increments. This avoids leaking API keys if an upstream/provider exception includes credential-like text.
+- Groq remains `UnimplementedProvider`; judgment-only review continues working when no triage provider is configured.
+
+## Change Status
+
+Work Units 1–10 are complete. The next OpenSpec action is independent verification/archive by the parent orchestration flow.

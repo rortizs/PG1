@@ -22,11 +22,22 @@ function toId(value) {
  * the raw row) so `encrypted_api_key` can never leak even if a future
  * `SELECT *` accidentally includes it.
  */
+const SUPPORTED_PROVIDER_ROLES = ["judgment", "triage"];
+
+function assertSupportedRole(role) {
+	if (!SUPPORTED_PROVIDER_ROLES.includes(role)) {
+		throw new RangeError(
+			`Unsupported LLM provider role: ${role}. Must be one of: ${SUPPORTED_PROVIDER_ROLES.join(", ")}.`,
+		);
+	}
+}
+
 function toMaskedView(row) {
 	return {
 		id: toId(row.id),
 		type: "llm_provider_config",
 		provider_name: row.provider_name,
+		role: row.role ?? "judgment",
 		model_id: row.model_id,
 		api_key_last_four: row.api_key_last_four,
 		is_active: row.is_active,
@@ -49,7 +60,11 @@ function toMaskedView(row) {
  * first write — so a misconfigured key surfaces immediately instead of
  * failing unpredictably deep inside a later encrypt/decrypt call.
  */
-export function createProviderConfigRepository({ client, connectionString, env } = {}) {
+export function createProviderConfigRepository({
+	client,
+	connectionString,
+	env,
+} = {}) {
 	// Fail fast at construction time — before any DB I/O is attempted.
 	getEncryptionKey(env);
 
@@ -59,7 +74,7 @@ export function createProviderConfigRepository({ client, connectionString, env }
 		async list() {
 			return run(async (pgClient) => {
 				const result = await pgClient.query(
-					`SELECT id, provider_name, model_id, api_key_last_four, is_active, metadata, created_at, updated_at
+					`SELECT id, provider_name, role, model_id, api_key_last_four, is_active, metadata, created_at, updated_at
 					 FROM llm_provider_config
 					 ORDER BY id`,
 				);
@@ -67,16 +82,30 @@ export function createProviderConfigRepository({ client, connectionString, env }
 			});
 		},
 
-		async create({ providerName, modelId, apiKey, metadata = {} }) {
+		async create({
+			providerName,
+			role = "judgment",
+			modelId,
+			apiKey,
+			metadata = {},
+		}) {
+			assertSupportedRole(role);
 			const encryptedApiKey = encryptApiKey(apiKey, { env });
 			const apiKeyLastFour = lastFour(apiKey);
 			return run(async (pgClient) => {
 				const result = await pgClient.query(
 					`INSERT INTO llm_provider_config
-					   (provider_name, model_id, encrypted_api_key, api_key_last_four, is_active, metadata)
-					 VALUES ($1, $2, $3, $4, false, $5)
-					 RETURNING id, provider_name, model_id, api_key_last_four, is_active, metadata, created_at, updated_at`,
-					[providerName, modelId, encryptedApiKey, apiKeyLastFour, JSON.stringify(metadata)],
+					   (provider_name, role, model_id, encrypted_api_key, api_key_last_four, is_active, metadata)
+					 VALUES ($1, $2, $3, $4, $5, false, $6)
+					 RETURNING id, provider_name, role, model_id, api_key_last_four, is_active, metadata, created_at, updated_at`,
+					[
+						providerName,
+						role,
+						modelId,
+						encryptedApiKey,
+						apiKeyLastFour,
+						JSON.stringify(metadata),
+					],
 				);
 				return toMaskedView(result.rows[0]);
 			});
@@ -103,7 +132,7 @@ export function createProviderConfigRepository({ client, connectionString, env }
 					   metadata = COALESCE($6, metadata),
 					   updated_at = now()
 					 WHERE id = $1
-					 RETURNING id, provider_name, model_id, api_key_last_four, is_active, metadata, created_at, updated_at`,
+					 RETURNING id, provider_name, role, model_id, api_key_last_four, is_active, metadata, created_at, updated_at`,
 					[
 						id,
 						providerName ?? null,
@@ -119,22 +148,32 @@ export function createProviderConfigRepository({ client, connectionString, env }
 		},
 
 		/**
-		 * Atomically deactivates any currently-active row, then activates
-		 * `id` — a single transaction so the DB's partial unique index on
-		 * `is_active` (design decision #3) is never transiently violated and
-		 * a concurrent activate can never leave two rows active.
+		 * Atomically deactivates any currently-active row for the target row's
+		 * role, then activates `id` — a single transaction so the DB's partial
+		 * unique index on `(role) WHERE is_active` is never transiently violated
+		 * and a concurrent activate can never leave two rows active for one role.
 		 */
 		async activate(id) {
 			return run(async (pgClient) => {
 				await pgClient.query("BEGIN");
 				try {
+					const target = await pgClient.query(
+						"SELECT role FROM llm_provider_config WHERE id = $1 FOR UPDATE",
+						[id],
+					);
+					if (target.rows.length === 0) {
+						await pgClient.query("COMMIT");
+						return null;
+					}
+					const role = target.rows[0].role;
 					await pgClient.query(
-						"UPDATE llm_provider_config SET is_active = false, updated_at = now() WHERE is_active = true",
+						"UPDATE llm_provider_config SET is_active = false, updated_at = now() WHERE is_active = true AND role = $1",
+						[role],
 					);
 					const result = await pgClient.query(
 						`UPDATE llm_provider_config SET is_active = true, updated_at = now()
 						 WHERE id = $1
-						 RETURNING id, provider_name, model_id, api_key_last_four, is_active, metadata, created_at, updated_at`,
+						 RETURNING id, provider_name, role, model_id, api_key_last_four, is_active, metadata, created_at, updated_at`,
 						[id],
 					);
 					await pgClient.query("COMMIT");
@@ -153,18 +192,21 @@ export function createProviderConfigRepository({ client, connectionString, env }
 		 * when no row is active — callers must treat that as "no active LLM
 		 * provider configured", never a silent fallback.
 		 */
-		async getActiveProvider() {
+		async getActiveProvider(role = "judgment") {
+			assertSupportedRole(role);
 			return run(async (pgClient) => {
 				const result = await pgClient.query(
-					`SELECT provider_name, model_id, encrypted_api_key
+					`SELECT provider_name, role, model_id, encrypted_api_key
 					 FROM llm_provider_config
-					 WHERE is_active = true
+					 WHERE is_active = true AND role = $1
 					 LIMIT 1`,
+					[role],
 				);
 				if (result.rows.length === 0) return null;
 				const row = result.rows[0];
 				return {
 					providerName: row.provider_name,
+					role: row.role,
 					modelId: row.model_id,
 					apiKey: decryptApiKey(row.encrypted_api_key, { env }),
 				};

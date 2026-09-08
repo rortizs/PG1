@@ -112,6 +112,25 @@ dev-server proxy and would 404 against `ng serve`'s own port). Verified this
 session: `curl http://127.0.0.1:4300/api/v1/thesis-documents` through the dev
 server returns the real API's response, not a 404.
 
+## 5b. Provision a reviewer account and log in
+
+reviewer-authentication: every API route below now requires a real reviewer
+session (design.md D6) — the previous per-route, no-auth behavior is gone.
+Provision one operator account (see `apps/api/src/db/seed-reviewer.mjs`,
+design.md D10; run this once per environment):
+
+```bash
+DATABASE_URL=<same value as .env> node apps/api/src/db/seed-reviewer.mjs \
+  --email you@example.com --display-name "Your Name" --generate
+```
+
+The generated password prints once, on its own line — copy it immediately,
+it is never shown again (the hash is never printed). Open
+`http://127.0.0.1:4300/login` and sign in with that email/password. The
+session interceptor then attaches `Authorization: Bearer <token>`
+automatically to every subsequent API request from the browser, including
+the admin page.
+
 ## 6. Upload a real document and trigger a review run
 
 Open `http://127.0.0.1:4300/upload` in a browser. Select one real `.pdf` or
@@ -200,8 +219,12 @@ Add to `.env` (see step 1 above) alongside `DATABASE_URL`/`ANTHROPIC_API_KEY`/`W
 
 ```
 LLM_PROVIDER_ENCRYPTION_KEY=<64 hex characters — 32 bytes, e.g. `openssl rand -hex 32`>
-ADMIN_SHARED_SECRET=<any non-empty string — this is a TEMPORARY MVP gate, NOT real auth>
 ```
+
+reviewer-authentication (PR3a): the admin API's temporary MVP shared-secret
+gate is retired. Admin routes now require a real reviewer session, exactly
+like every other route — see "Provision a reviewer account and log in"
+below.
 
 `LLM_PROVIDER_ENCRYPTION_KEY` is validated fail-fast: the admin API's first
 request of any kind (including a bare `list`) returns `500
@@ -223,17 +246,18 @@ constraint.
 
 ## 3. Open the admin page and add a provider
 
-With the worker (step 3), API (step 4, `ADMIN_SHARED_SECRET`/
-`LLM_PROVIDER_ENCRYPTION_KEY` sourced), and web app (step 5) all running,
-open `http://127.0.0.1:4300/admin/llm-providers`.
+With the worker (step 3), API (step 4, `LLM_PROVIDER_ENCRYPTION_KEY`
+sourced), and web app (step 5) all running, open
+`http://127.0.0.1:4300/admin/llm-providers`.
 
-The first admin action (loading the list) triggers a browser `prompt()` for
-the admin shared secret — enter the same value as `ADMIN_SHARED_SECRET`.
-This is held in an in-memory signal for the rest of the browser session only
-(never `localStorage`, never baked into the bundle — verified this session
-via `apps/web/tests/smoke.test.mjs`'s explicit assertion that
-`admin-secret-store.ts` never calls `localStorage`/`sessionStorage`, and by
-inspection that a page refresh loses it and re-prompts).
+reviewer-authentication (PR3a/PR3b): the admin page now requires a real
+reviewer session. Provision one operator account with
+`apps/api/src/db/seed-reviewer.mjs` (see the "Provision a reviewer account
+and log in" section above), then sign in at `/login` before opening the
+admin page — the session interceptor attaches the resulting
+`Authorization: Bearer <token>` to every admin request automatically, held
+in an in-memory signal for the browser session only (never `localStorage`,
+never baked into the bundle).
 
 Fill in the "Add provider" form:
 

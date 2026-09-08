@@ -65,6 +65,51 @@ const POLL_INTERVAL_MS = 3000;
       }
     }
   `,
+  styles: [`
+    :host {
+      display: block;
+      max-width: 720px;
+      margin: 0 auto;
+      padding: var(--pg1-page-margin) var(--pg1-space-gutter);
+    }
+
+    h1 {
+      margin-bottom: var(--pg1-space-gutter);
+    }
+
+    p {
+      margin-bottom: calc(var(--pg1-space-unit) * 2);
+    }
+
+    p:last-child {
+      margin-bottom: 0;
+    }
+
+    ul {
+      display: flex;
+      flex-direction: column;
+      gap: var(--pg1-node-gap);
+      margin-top: var(--pg1-space-gutter);
+    }
+
+    li {
+      border: var(--pg1-border-structural);
+      background: var(--pg1-color-surface-container-low);
+      padding: var(--pg1-container-padding);
+    }
+
+    li h2 {
+      margin-bottom: calc(var(--pg1-space-unit) * 2);
+    }
+
+    li p {
+      margin-bottom: var(--pg1-node-gap);
+    }
+
+    li blockquote {
+      margin: 0;
+    }
+  `],
 })
 export class ResultsPage {
   private readonly route = inject(ActivatedRoute);

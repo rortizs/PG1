@@ -58,7 +58,7 @@ export function selectReviewBoardDisplayCards({
 		: { source: "demo_fallback", cards: demoFallbackCards };
 }
 
-function normalizeReviewBoardPriority(priority: string): ReviewPriority {
+export function normalizeReviewBoardPriority(priority: string): ReviewPriority {
 	switch (priority.toLowerCase()) {
 		case "low":
 			return "Low";

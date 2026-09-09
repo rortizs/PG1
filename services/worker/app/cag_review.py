@@ -203,7 +203,9 @@ def _plan_chunks(pages: list[dict[str, Any]], sections: list[dict[str, Any]]) ->
 
     if sections:
         by_number = {number: page for page in page_list if (number := _page_number(page)) is not None}
-        for section in sorted(sections, key=lambda item: item.get("index", 0)):
+        covered_page_numbers: set[int] = set()
+        ranges: list[tuple[int, int, dict[str, Any]]] = []
+        for section in sections:
             start = section.get("start_page_number")
             end = section.get("end_page_number") or start
             if start is None or end is None:
@@ -213,6 +215,30 @@ def _plan_chunks(pages: list[dict[str, Any]], sections: list[dict[str, Any]]) ->
                 end_number = int(end)
             except (TypeError, ValueError):
                 continue
+            ranges.append((start_number, end_number, section))
+
+        for start_number, end_number, section in sorted(
+            ranges, key=lambda item: (item[0], item[2].get("index", 0))
+        ):
+            gap_pages = [
+                page
+                for page in page_list
+                if (number := _page_number(page)) is not None
+                and number < start_number
+                and number not in covered_page_numbers
+            ]
+            for offset in range(0, len(gap_pages), MAX_CHUNK_PAGES):
+                previous_source_text = _chunk_from_pages(
+                    chunks=chunks,
+                    pages=gap_pages[offset : offset + MAX_CHUNK_PAGES],
+                    section_index=None,
+                    section_title=None,
+                    previous_source_text=previous_source_text,
+                )
+            covered_page_numbers.update(
+                number for page in gap_pages if (number := _page_number(page)) is not None
+            )
+
             section_pages = [
                 by_number[number]
                 for number in range(start_number, end_number + 1)
@@ -226,6 +252,23 @@ def _plan_chunks(pages: list[dict[str, Any]], sections: list[dict[str, Any]]) ->
                     section_title=section.get("title"),
                     previous_source_text=previous_source_text,
                 )
+            covered_page_numbers.update(
+                number for page in section_pages if (number := _page_number(page)) is not None
+            )
+
+        remaining_pages = [
+            page
+            for page in page_list
+            if (number := _page_number(page)) is None or number not in covered_page_numbers
+        ]
+        for offset in range(0, len(remaining_pages), MAX_CHUNK_PAGES):
+            previous_source_text = _chunk_from_pages(
+                chunks=chunks,
+                pages=remaining_pages[offset : offset + MAX_CHUNK_PAGES],
+                section_index=None,
+                section_title=None,
+                previous_source_text=previous_source_text,
+            )
         return chunks
 
     for offset in range(0, len(page_list), MAX_CHUNK_PAGES):

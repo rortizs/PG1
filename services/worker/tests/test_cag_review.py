@@ -181,6 +181,80 @@ class CagReviewTest(unittest.TestCase):
         self.assertEqual(len(result.findings), 1)
         self.assertIsNone(result.findings[0].section_index)
 
+    def test_sections_leave_no_document_pages_unreviewed(self):
+        from app.cag_review import run_cag_review
+
+        pages = [
+            {"page_number": 1, "section_title": None, "text": "Preface gap appears here."},
+            {"page_number": 2, "section_title": "Chapter", "text": "Chapter issue appears here."},
+            {"page_number": 3, "section_title": None, "text": "Appendix gap appears here."},
+        ]
+        sections = [
+            {
+                "index": 7,
+                "title": "Chapter",
+                "section_type": "chapter",
+                "start_page_number": 2,
+                "end_page_number": 2,
+                "is_location_uncertain": False,
+            }
+        ]
+        provider = FakeLLMProvider(
+            responses=[
+                json.dumps(
+                    {
+                        "findings": [
+                            finding_payload(
+                                title="Preface issue",
+                                evidence_text="Preface gap appears here.",
+                                page_number=1,
+                                section_index=None,
+                            )
+                        ]
+                    }
+                ),
+                json.dumps(
+                    {
+                        "findings": [
+                            finding_payload(
+                                title="Chapter issue",
+                                evidence_text="Chapter issue appears here.",
+                                page_number=2,
+                                section_index=7,
+                            )
+                        ]
+                    }
+                ),
+                json.dumps(
+                    {
+                        "findings": [
+                            finding_payload(
+                                title="Appendix issue",
+                                evidence_text="Appendix gap appears here.",
+                                page_number=3,
+                                section_index=None,
+                            )
+                        ]
+                    }
+                ),
+            ]
+        )
+
+        result = run_cag_review(provider, pages=pages, sections=sections)
+
+        self.assertEqual(len(provider.received_calls), 3)
+        self.assertIn("Preface gap appears here.", provider.received_calls[0]["user_text"])
+        self.assertIn("Chapter issue appears here.", provider.received_calls[1]["user_text"])
+        self.assertIn("Appendix gap appears here.", provider.received_calls[2]["user_text"])
+        self.assertEqual(
+            [(finding.title, finding.section_index, finding.section_title) for finding in result.findings],
+            [
+                ("Preface issue", None, None),
+                ("Chapter issue", 7, "Chapter"),
+                ("Appendix issue", None, None),
+            ],
+        )
+
     def test_triage_not_suspect_skips_judgment_for_that_chunk(self):
         from app.cag_review import run_cag_review
 

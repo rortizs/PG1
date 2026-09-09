@@ -1,6 +1,11 @@
 import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import type { Observable } from 'rxjs';
+import type { ReportArtifact } from './results/report-download-view';
+import {
+  REVIEW_BOARD_CARDS_API_PATH,
+  type ReviewBoardCardsApiResponse,
+} from './review-board/review-board-api';
 
 export interface ThesisDocumentResponse {
   id: string;
@@ -56,6 +61,12 @@ export interface FindingsListResponse {
   filters: Record<string, string>;
 }
 
+export interface ReportArtifactsResponse {
+  review_run_id: string;
+  status: string;
+  items: ReportArtifact[];
+}
+
 /**
  * Thin typed HTTP client for the PG1 API's thesis-document and review-run
  * routes. Reused by both the upload page and the results page.
@@ -89,6 +100,18 @@ export class ThesisApiClient {
   getReviewRunFindings(runId: string): Observable<FindingsListResponse> {
     return this.http.get<FindingsListResponse>(
       `/api/v1/review-runs/${encodeURIComponent(runId)}/findings`,
+    );
+  }
+
+  getReportArtifacts(runId: string): Observable<ReportArtifactsResponse> {
+    return this.http.get<ReportArtifactsResponse>(
+      `/api/v1/review-runs/${encodeURIComponent(runId)}/report-artifacts`,
+    );
+  }
+
+  getReviewBoardCards(): Observable<ReviewBoardCardsApiResponse> {
+    return this.http.get<ReviewBoardCardsApiResponse>(
+      REVIEW_BOARD_CARDS_API_PATH,
     );
   }
 }

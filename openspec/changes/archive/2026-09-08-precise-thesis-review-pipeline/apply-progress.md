@@ -8,11 +8,11 @@
 - PR1 scope guard: touched only `services/worker/app/extraction.py` (section detection, PDF path only — DOCX/LibreOffice conversion untouched, PR3's job), `apps/api/src/db/review-repository.mjs` (two new functions, `persistFinding` untouched — it already accepted `documentPageId`/`documentSectionId`), `apps/api/src/jobs/review-orchestrator.mjs` (page/section persistence + FK wiring, no change to the single-call LLM review shape), and their test files. `services/worker/app/main.py` needed **zero code changes** — see "A discovery, not silently assumed" below. `infra/docker-compose.yml` was temporarily port-remapped (`5433:5432`) for live verification and reverted before finishing — `git diff infra/docker-compose.yml` confirms zero net change. No deterministic rule engine, DOCX/LibreOffice conversion, provider-protocol changes, or chunked review loop were touched — those remain Work Units 4+ (PR2–PR7), explicitly out of scope for this pass.
 - PR2 estimated authored change: a new `services/worker/app/rules/` package (8 files, ~520 lines), `services/worker/tests/test_rules.py` (new, ~230 lines), `services/worker/tests/test_review_endpoint.py` (+43), `services/worker/app/main.py` (+38), `services/worker/pyproject.toml` (+2 deps), `apps/api/src/db/review-repository.mjs` (+8/-4), `apps/api/src/jobs/review-orchestrator.mjs` (+95/-27), `apps/api/tests/review-orchestrator.test.mjs` (+178), `apps/api/tests/live-review-integration.test.mjs` (+100/-1) — roughly ~1,175 authored lines, again the pre-approved PR2 slice from the same Review Workload Forecast (no further exception confirmation required, matching PR1's precedent).
 - PR2 scope guard: touched only the new `services/worker/app/rules/` package (zero-LLM deterministic checks), `services/worker/app/main.py` (new `/internal/rules` route only — `/internal/review`'s existing flat `{thesis_text}` contract untouched, that's PR4/PR5's job), `services/worker/pyproject.toml` (added exactly `pysbd`/`pyspellchecker`, per the user's explicit constraint — `rapidfuzz` deliberately deferred to PR5, where design.md's File Changes table actually needs it for grounding/dedup), `apps/api/src/db/review-repository.mjs` (`persistFinding` gained optional `ruleId`/`metadata` params + `updateReviewRunStatus` gained `metadata` — both additive, no existing call site changed), and `apps/api/src/jobs/review-orchestrator.mjs` (independent `/internal/rules` call + persistence, D9 isolation). No DOCX/LibreOffice conversion, provider-protocol changes, or chunked review loop were touched — those remain Work Units 6+ (PR3–PR7), explicitly out of scope for this pass. `infra/docker-compose.yml` was again temporarily port-remapped (`5433:5432`) for live verification and reverted before finishing — `git diff infra/docker-compose.yml` confirms zero net change.
-- This is now the SECOND completed slice of a 7-PR chain. Work Units 1–5 are complete; Work Units 6–10 remain for future apply passes.
+- This progress file now includes PR1 through PR7. Work Units 1–10 are complete; independent verification/archive remains for the parent orchestration flow.
 
 ## A discovery, not silently assumed: `main.py` needed no code change
 
-`tasks.md`'s Work Unit 3 GREEN line says `"main.py`'s extract route returns `sections`"`. Re-reading `main.py`'s existing `/internal/extract` route before implementing showed it already does `return result.to_dict()` — and `ExtractionResult.to_dict()` (extended this pass to include `"sections": [asdict(s) for s in self.sections]`) automatically flows through unchanged route code. So the requirement is satisfied as a structural side effect of extending `ExtractionResult`/`to_dict()`, not a `main.py` diff. Confirmed directly by `test_extract.py`'s new endpoint-level test (`test_extracts_sections_and_per_page_section_title_from_a_real_pdf`), which asserts the live route response — not just the internal function — carries `sections`. Flagged here rather than silently deviating from the task's literal file-touch description; `main.py` is genuinely untouched by `git diff --stat`.
+`tasks.md`'s Work Unit 3 GREEN line says `"main.py`'s extract route returns `sections`"`. Re-reading`main.py`'s existing`/internal/extract` route before implementing showed it already does `return result.to_dict()` — and `ExtractionResult.to_dict()` (extended this pass to include `"sections": [asdict(s) for s in self.sections]`) automatically flows through unchanged route code. So the requirement is satisfied as a structural side effect of extending`ExtractionResult`/`to_dict()`, not a`main.py` diff. Confirmed directly by `test_extract.py`'s new endpoint-level test (`test_extracts_sections_and_per_page_section_title_from_a_real_pdf`), which asserts the live route response — not just the internal function — carries`sections`. Flagged here rather than silently deviating from the task's literal file-touch description;`main.py` is genuinely untouched by `git diff --stat`.
 
 ## Completed Tasks (PR1)
 
@@ -198,14 +198,266 @@ None — every RED front (Work Unit 4's single `test_rules.py` run, Work Unit 5'
 - **Protected/untouched tests confirmed still green**: `contract.test.mjs`, `smoke.test.mjs`, `upload-storage.test.mjs`, `postgres-unreachable.test.mjs` (all part of the 83-pass live `apps/api` total, byte-untouched by `git diff --stat`); `review-repository.test.mjs`'s existing single-`persistFinding` case (still passes unmodified — the new `ruleId`/`metadata` params are optional with backward-compatible defaults); `test_smoke.py`, `test_cag_review.py`'s existing single-finding assertions, `test_provider_factory.py`'s non-DeepSeek assertions (all part of the 52-pass worker total, byte-untouched).
 - **`infra/docker-compose.yml`**: `git diff` shows zero net change at the end of this pass.
 
+---
+
+# PR3 — DOCX→PDF Conversion (Work Unit 6)
+
+## Completed Tasks
+
+- [x] Work Unit 6 RED: extended `services/worker/tests/test_extract.py` with DOCX conversion coverage before production code existed. The focused RED run failed with `ImportError: cannot import name 'DocxConversionError' from 'app.extraction'`, proving the new behavior was not present yet.
+- [x] Work Unit 6 GREEN: added `DocxConversionError`, `_convert_docx_to_pdf()`, and the DOCX extraction path that converts with headless LibreOffice before delegating to the existing `_extract_pdf()` implementation. The invocation uses a fixed temp `input.docx` name, explicit argv list, no `shell=True`, a per-call LibreOffice profile, `--headless --norestore --convert-to pdf`, `--outdir`, and a 120s timeout.
+- [x] Work Unit 6 TRIANGULATE: tests cover missing LibreOffice, non-zero exit, timeout, hostile upload filename exclusion from argv, tempdir cleanup on success/failure, and converted-DOCX/native-PDF parity for page and section extraction.
+- [x] Work Unit 6 REFACTOR: no broader refactor; the conversion helper is self-contained and the PDF extraction path remains the canonical downstream extractor.
+- [x] Work Unit 6 Verify: worker focused tests, full worker tests, `pnpm --dir services/worker test`, and a real local `soffice` smoke extraction all passed.
+
+## Files Changed (PR3)
+
+| File | Action | What Was Done |
+|------|--------|---------------|
+| `services/worker/app/extraction.py` | Modified | Replaced the page-less `python-docx` extraction path with DOCX→PDF normalization through LibreOffice, then delegates to `_extract_pdf()` for identical per-page extraction/section detection. |
+| `services/worker/tests/test_extract.py` | Modified | Added DOCX conversion tests for safe subprocess args, failure modes, cleanup, and converted-DOCX/native-PDF parity; updated existing DOCX endpoint/MarkItDown tests to mock the conversion boundary. |
+| `openspec/changes/precise-thesis-review-pipeline/tasks.md` | Modified | Marked only Work Unit 6 checkboxes complete. |
+| `openspec/changes/precise-thesis-review-pipeline/apply-progress.md` | Modified | Added this PR3 / Work Unit 6 progress section, preserving prior PR1/PR2 history. |
+| `CHECKLIST.md` | Modified | Updated the operational checklist to show Work Unit 6 complete and Work Unit 7 as the next action. |
+
+## Test Commands Run (PR3)
+
+| Phase | Command | Result |
+| --- | --- | --- |
+| Work Unit 6 RED | `cd services/worker && PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. python3 -m unittest tests.test_extract -v` | Failed before production code with `ImportError: cannot import name 'DocxConversionError' from 'app.extraction'`. |
+| Post-GREEN command-shape check | `cd services/worker && PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. python3 -m unittest tests.test_extract -v` | Failed with `ModuleNotFoundError: No module named 'fixtures'` after the new imports progressed far enough to hit the pre-existing `from fixtures import ...` layout; corrected to the repo's discover-style worker runner below. |
+| Work Unit 6 GREEN/focused | `cd services/worker && PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. python3 -m unittest discover -s tests -p 'test_extract.py' -v` | **26 tests OK**. |
+| Worker regression | `cd services/worker && PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. python3 -m unittest discover -s tests -p 'test_*.py'` | **108 tests OK**. |
+| Worker package test | `pnpm --dir services/worker test` | **108 tests OK**. |
+| Real local LibreOffice smoke | `cd services/worker && PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=.:tests python3 -c 'from fixtures import build_minimal_docx; from app.extraction import extract_text; result = extract_text(filename="manual.docx", content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document", data=build_minimal_docx(["CAPÍTULO 1"])); print(result.content_type, result.page_count, result.pages[0].page_number, result.pages[0].section_title)'` | Printed `application/vnd.openxmlformats-officedocument.wordprocessingml.document 1 1 CAPÍTULO 1`; real `/opt/homebrew/bin/soffice` conversion produced page-accurate extraction. |
+
+## Verification Evidence (PR3)
+
+- DOCX uploads now preserve the original DOCX content type while using the same `_extract_pdf()` path as native PDFs after conversion.
+- Failure paths raise `DocxConversionError` with actionable messages for missing binary, non-zero exit, timeout, and missing output PDF; no section-only fallback remains.
+- Temporary conversion directories are removed after both success and failure in unit tests.
+
+---
+
+# PR4 — Cache-Aware Provider Protocol (Work Unit 7)
+
+## Completed Tasks
+
+- [x] Work Unit 7 RED: rewrote `services/worker/tests/test_provider_factory.py` and `services/worker/tests/test_cag_review.py` before production changes. The focused RED run failed with missing `PromptBlock`/`CompletionResult` imports, missing provider `.complete()`, and `run_cag_review()` still calling the fake's absent `.generate()`.
+- [x] Work Unit 7 GREEN: added `PromptBlock`, `CompletionResult`, and `LLMProvider.complete()` to `llm_provider.py`; rewrote `AnthropicProvider.complete()` to send structured system blocks plus user text; rewrote `UnimplementedProvider.complete()` to raise `ProviderNotImplementedError`; adapted `cag_review.py`'s single existing call site to `complete()` while keeping the zero-or-one finding behavior and single provider call for PR4.
+- [x] Work Unit 7 TRIANGULATE: provider tests cover cacheable Anthropic blocks mapping to `cache_control`, usage fields mapping from `cache_read_input_tokens`/`cache_creation_input_tokens`, default/unset `ANTHROPIC_CACHE_TTL` behaving as `5m` with no beta header and no `ttl`, and `ANTHROPIC_CACHE_TTL=1h` adding `anthropic-beta: extended-cache-ttl-2025-04-11` plus `ttl: "1h"`.
+- [x] Work Unit 7 REFACTOR: no broader refactor; a tiny `system_payload` local plus `typing.cast(Any, ...)` keeps Anthropic SDK typing noise out of the request assembly without changing behavior.
+- [x] Work Unit 7 Verify: focused provider/CAG tests and full worker package test passed.
+
+## Files Changed (PR4)
+
+| File | Action | What Was Done |
+|------|--------|---------------|
+| `services/worker/app/providers/llm_provider.py` | Modified | Added frozen `PromptBlock` and `CompletionResult` dataclasses; replaced `LLMProvider.generate()` with keyword-only `complete(system_blocks, user_text, max_tokens=2048)`. |
+| `services/worker/app/providers/anthropic_provider.py` | Modified | Replaced `generate(prompt)` with `complete(...)`; maps cacheable system blocks to Anthropic `cache_control`, sends user text as the user message, includes the 1h beta header only when requested, and returns token/cache usage in `CompletionResult`. |
+| `services/worker/app/providers/unimplemented_provider.py` | Modified | Replaced `generate(prompt)` with `complete(...)`; registry-only providers still fail loudly without touching credentials or the network. |
+| `services/worker/app/cag_review.py` | Modified | Sends `SYSTEM_PROMPT` plus a cacheable normative-corpus block through `provider.complete(...)`; retrieved-context calls remain uncached; parsing and zero-or-one finding behavior are unchanged for this PR. |
+| `services/worker/tests/test_provider_factory.py` | Modified | Added protocol/dataclass/no-`generate` assertions, fake Anthropic SDK request-shape tests, cache-token mapping tests, and TTL triangulation. |
+| `services/worker/tests/test_cag_review.py` | Modified | Reworked the fake provider to implement `complete()` and assert the corpus travels as a cacheable system block while the review remains single-call. |
+| `openspec/changes/precise-thesis-review-pipeline/tasks.md` | Modified | Marked only Work Unit 7 checkboxes complete. |
+| `openspec/changes/precise-thesis-review-pipeline/apply-progress.md` | Modified | Added this PR4 / Work Unit 7 progress section, preserving prior PR1/PR2/WU6 history. |
+| `CHECKLIST.md` | Modified | Updated the operational next action to Work Unit 8. |
+
+## Test Commands Run (PR4)
+
+| Phase | Command | Result |
+| --- | --- | --- |
+| Work Unit 7 RED | `cd services/worker && PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. python3 -m unittest tests.test_provider_factory tests.test_cag_review -v` | Failed before production changes: `ImportError: cannot import name 'CompletionResult'`, `ImportError: cannot import name 'PromptBlock'`, and `AttributeError: 'FakeLLMProvider' object has no attribute 'generate'`. |
+| Work Unit 7 GREEN | `cd services/worker && PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. python3 -m unittest tests.test_provider_factory tests.test_cag_review -v` | **18 tests OK**. |
+| Work Unit 7 REFACTOR check | Same focused command after the Anthropic typing cleanup | **18 tests OK**. |
+| Worker package regression | `pnpm --dir services/worker test` | **111 tests OK**. Output includes the pre-existing FastAPI/Starlette deprecation warning and `EOF marker not found` line, but the suite exits green. |
+
+## Verification Evidence (PR4)
+
+- `.generate()` methods are removed from the provider protocol and provider classes touched in this work unit; `grep` now finds only stale comments in `app/main.py` and the test name asserting removal.
+- Anthropic request-shape tests prove cacheable system blocks become `cache_control` blocks, the user content remains separate, and usage cache fields populate `CompletionResult.cache_read_tokens`/`cache_write_tokens`.
+- `cag_review.py` still performs one provider call and returns `CagFinding | None`; Work Unit 8 owns chunking, multi-finding output, and `/internal/review` contract changes.
+
+## Deviations / Scope Notes (PR4)
+
+- `app/main.py` still contains comments mentioning `.generate()` because it was outside Work Unit 7's allowed edit surfaces; behavior is unaffected because the actual call site is in `cag_review.py` and now uses `.complete()`.
+- `DeepSeekProvider` remains a registry-only subclass of `UnimplementedProvider` with `.complete()` until Work Unit 10 implements the real DeepSeek triage provider; removing the class in PR4 would require editing `app/main.py`, which was not authorized for this delegated pass.
+
 ## Remaining Tasks
 
-- [ ] Work Unit 6 — DOCX→PDF conversion (PR3)
-- [ ] Work Unit 7 — Cache-aware provider protocol, breaking (PR4)
 - [ ] Work Unit 8 — Chunked multi-finding review loop + `/internal/review` contract (PR5)
 - [ ] Work Unit 9 — Role-based provider assignment (PR6)
 - [ ] Work Unit 10 — Real `DeepSeekProvider` wired as `triage` (PR7)
 
 ## Change Status
 
-**PR1 (Work Units 1–3) and PR2 (Work Units 4–5) of the `precise-thesis-review-pipeline` change are complete.** Work Units 6–10 (PR3–PR7) remain, to be implemented in future `sdd-apply` passes per the stacked-PR chain `tasks.md` already defines.
+**PR1 (Work Units 1–3), PR2 (Work Units 4–5), PR3 (Work Unit 6), PR4 (Work Unit 7), and PR5 (Work Unit 8) of the `precise-thesis-review-pipeline` change are complete.** Work Units 9–10 (PR6–PR7) remain, to be implemented in future `sdd-apply` passes per the stacked-PR chain `tasks.md` already defines.
+
+---
+
+# PR5 — Chunked Multi-Finding Review Loop + Contract (Work Unit 8)
+
+## Completed Implementation Tasks
+
+- [x] Work Unit 8 RED (worker): `services/worker/tests/test_cag_review.py` was rewritten first for the new `complete()` fake, section/fallback chunk counts, list-shaped results, cacheable corpus blocks, confidence/grounding/dedup drops, severity/page sorting, no arbitrary cap, and malformed-response failures. The first focused run failed before production changes with `run_cag_review() got an unexpected keyword argument 'pages'` and missing `get_judgment_provider` on the endpoint path.
+- [x] Work Unit 8 RED (API): `active-provider-resolution.test.mjs`, `live-review-integration.test.mjs`, and `review-orchestrator.test.mjs` were reworked first for the structured body and multi-finding response. The focused API RED run failed with the worker receiving the old `{ thesis_text, provider_name, api_key, model_id }` body instead of `{ pages, sections, judgment_provider, triage_provider }`.
+- [x] Work Unit 8 GREEN: `cag_review.py` now plans section chunks and 8-page fallback windows, includes previous-chunk context tails, calls `provider.complete(system_blocks=[SYSTEM, CORPUS(cacheable)], user_text=chunk.text)`, parses `{findings: [...]}`, filters below `MIN_LLM_CONFIDENCE=0.75`, drops ungrounded candidates, dedups adjacent similar findings by dropping the lower-confidence duplicate, sorts by severity then page, and returns `{findings, stats}` data. `/internal/review` now accepts the structured contract and returns `findings` plus `stats`; `review-orchestrator.mjs` sends the new body and persists every returned finding using `idByPageNumber` and `idByIndex` when `section_index` is present.
+- [x] Work Unit 8 TRIANGULATE: Tests prove malformed/non-JSON provider responses still raise `CagReviewError`; zero findings returns a completed empty result; absent `triage_provider` is accepted; legacy thesis-text-only endpoint requests are rejected by the new contract.
+- [x] Work Unit 8 REFACTOR: Chunk planning, grounding normalization/fuzzy fallback, dedup, and sorting are named private helpers in `cag_review.py`; `rapidfuzz>=3.9` was added to `pyproject.toml`, with a local `difflib` fallback so tests remain runnable in the current environment where `rapidfuzz` is not installed.
+- [x] Work Unit 8 Verify: Focused worker/API tests and the full worker suite are green. The broad API suite is green when run with the same live Postgres dependency used by the reviewer-authentication session guard: `pnpm --dir services/worker test && DATABASE_URL=postgres://pg1:pg1@localhost:5432/pg1 pnpm --dir apps/api test` → worker **114 tests OK**, API **151 pass / 0 fail**. The earlier `tests/smoke.test.mjs` `503 !== 401` result was environment-scoped: without `DATABASE_URL`, `SessionGuard` correctly returns service-unavailable before it can authenticate the missing session.
+
+## Files Changed (PR5 / WU8)
+
+| File | Action | What Was Done |
+|------|--------|---------------|
+| `services/worker/app/cag_review.py` | Modified | Replaced the single-call `CagFinding | None` path with chunk planning, multi-finding parsing/filtering/dedup/sorting, cache stats aggregation, and `CagReviewResult`. |
+| `services/worker/app/main.py` | Modified | Changed `/internal/review` to `{pages, sections, judgment_provider, triage_provider?}` and response `{findings, stats}`; triage remains accepted/no-op until WU10. |
+| `services/worker/pyproject.toml` | Modified | Added `rapidfuzz>=3.9` for D4 grounding/dedup thresholds. |
+| `services/worker/tests/test_cag_review.py` | Modified | Reworked CAG tests for chunk calls, cacheable corpus, list return, filters, dedup, sorting/no cap, and malformed responses. |
+| `services/worker/tests/test_review_endpoint.py` | Modified | Reworked `/internal/review` endpoint tests for structured request/response, missing judgment credentials, unimplemented judgment providers, absent triage, and legacy request rejection. |
+| `apps/api/src/jobs/review-orchestrator.mjs` | Modified | Sends the structured worker body, uses the 900s review timeout, passes extraction pages/sections to CAG review, and persists every LLM finding returned in `findings[]`. |
+| `apps/api/tests/review-orchestrator.test.mjs` | Modified | Reworked default body assertions and fixture responses to the multi-finding contract while keeping existing independence/provenance coverage green. |
+| `apps/api/tests/active-provider-resolution.test.mjs` | Modified | Exact-body assertions now require `{pages, sections, judgment_provider, triage_provider}` instead of legacy flat provider fields. |
+| `apps/api/tests/live-review-integration.test.mjs` | Modified | Fake worker returns multiple LLM findings; assertions now require at least two findings and real non-null page/section FKs. |
+| `openspec/changes/precise-thesis-review-pipeline/tasks.md` | Modified | Marked WU8 RED/GREEN/TRIANGULATE/REFACTOR/Verify/Rollback complete. |
+| `openspec/changes/precise-thesis-review-pipeline/apply-progress.md` | Modified | Added this WU8 progress section, preserving prior history. |
+
+## Test Commands Run (PR5 / WU8)
+
+| Phase | Command | Result |
+| --- | --- | --- |
+| Worker RED | `cd services/worker && PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. python3 -m unittest tests.test_cag_review tests.test_review_endpoint -v` | Failed before production changes with the expected missing structured API: `run_cag_review() got an unexpected keyword argument 'pages'`, missing `get_judgment_provider`, and `/internal/review` still accepting legacy `thesis_text`. |
+| API RED | `cd apps/api && node --import tsx --test tests/review-orchestrator.test.mjs tests/active-provider-resolution.test.mjs tests/live-review-integration.test.mjs` | Failed on the exact-body assertion: actual body was legacy `{ thesis_text, provider_name, api_key, model_id }`; expected body was structured `{ pages, sections, judgment_provider, triage_provider }`. The command later timed out while the live suites continued, after the RED failure had already been observed. |
+| Worker focused GREEN | `cd services/worker && PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. python3 -m unittest tests.test_cag_review tests.test_review_endpoint -v` | **19 tests OK**. |
+| API focused GREEN | `cd apps/api && node --import tsx --test tests/review-orchestrator.test.mjs` | **15 pass / 0 fail**. |
+| API active-provider focused GREEN | `cd apps/api && node --import tsx --test tests/active-provider-resolution.test.mjs` | **1 pass / 0 fail**. |
+| API live-review focused GREEN | `cd apps/api && node --import tsx --test tests/live-review-integration.test.mjs` | **1 pass / 0 fail**. |
+| Worker package regression | `pnpm --dir services/worker test` | **114 tests OK**. Output still includes the pre-existing FastAPI/Starlette deprecation warning and `EOF marker not found` line, but exits green. |
+| API package regression (without DB env) | `pnpm --dir apps/api test` | **150 pass / 1 fail**. Failure was `tests/smoke.test.mjs`: expected `401`, actual `503`; `cd apps/api && node --import tsx --test tests/smoke.test.mjs` reproduced the same `503 !== 401` failure when run alone. Root cause: this smoke needs `DATABASE_URL` so `SessionGuard` can resolve the reviewer repository before returning 401 for a missing session. |
+| API smoke root-cause proof | `cd apps/api && DATABASE_URL=postgres://pg1:pg1@localhost:5432/pg1 node --import tsx --test tests/smoke.test.mjs` | **2 pass / 0 fail**. |
+| Final WU8 regression | `pnpm --dir services/worker test && DATABASE_URL=postgres://pg1:pg1@localhost:5432/pg1 pnpm --dir apps/api test` | Worker **114 tests OK**; API **151 pass / 0 fail**. |
+
+## Deviations / Scope Notes (PR5 / WU8)
+
+- `rapidfuzz` is declared in `pyproject.toml` but is not installed in the current local Python environment. The production path will use `rapidfuzz` when installed; the local fallback uses `difflib` so WU8 tests can run without mutating dependencies in this delegated pass.
+- `apps/api/src/live-review-pipeline.mjs` was outside the allowed edit surfaces. Its active-provider wrapper still passes legacy argument names into `defaultRunCagReview`; `defaultRunCagReview` maps those arguments into the new structured HTTP body so the outward worker contract is correct. A future WU9/WU10 pass should revisit that wrapper when role-based `triage` resolution becomes in scope.
+- The earlier broad `apps/api` validation failure was not a WU8 regression. `smoke.test.mjs` expects 401 only after `DATABASE_URL` lets `SessionGuard` resolve the reviewer repository; with that environment present, the smoke test and full API suite are green.
+
+## Remaining Tasks
+
+- [x] Work Unit 8 Verify — broad worker/API verification is green with the required API `DATABASE_URL`.
+- [ ] Work Unit 9 — Role-based provider assignment (PR6)
+- [ ] Work Unit 10 — Real `DeepSeekProvider` wired as `triage` (PR7)
+
+## Change Status
+
+**Work Unit 8 is complete and verified.** Current next action is Work Unit 9: role-based provider assignment. Real DeepSeek triage remains Work Unit 10.
+
+---
+
+# PR6 — Role-Based Provider Assignment (Work Unit 9)
+
+## Completed Implementation Tasks
+
+- [x] Work Unit 9 RED: Added tests before production changes for role-scoped migrations, repository role activation/resolution, admin contract validation, live active-provider forwarding, orchestrator dual-provenance handoff, and web pure view payloads. The RED runs failed for the expected missing behavior: web create payload omitted `role`; API contract returned `503`/old provider behavior, repository rows had no `role`, migration inserts failed because `role` did not exist, and orchestrator completion updates omitted triage provenance.
+- [x] Work Unit 9 GREEN: Added `0008_llm_provider_role.sql` and `0009_review_run_triage_provenance.sql`; updated provider config repository role masking/create/activate/getActiveProvider; updated admin contract create role validation/defaulting and PATCH role rejection; updated live review provider resolution to require `judgment` and pass optional `triage`; updated orchestrator to forward triage provenance fields to completion updates; updated the admin provider pure model/page for role list/create-only select and role-less update payloads.
+- [x] Work Unit 9 TRIANGULATE: Tests prove active `judgment` and active `triage` rows can coexist; activating a new `judgment` leaves active `triage` untouched and vice versa; migration DOWN fails loudly while both roles are active rather than choosing a survivor silently.
+- [x] Work Unit 9 REFACTOR: `admin-contract.mjs` now shares field-validator helpers for provider name, role, and non-empty strings across create/update paths; role update immutability is centralized in `validateRoleField`.
+
+## Files Changed (PR6 / WU9)
+
+| File | Action | What Was Done |
+|------|--------|---------------|
+| `apps/api/src/db/migrations/0008_llm_provider_role.sql` | Created | Adds `llm_provider_config.role`, validates `judgment`/`triage`, replaces the global one-active partial unique index with per-role active uniqueness, and documents the loud DOWN ambiguity. |
+| `apps/api/src/db/migrations/0009_review_run_triage_provenance.sql` | Created | Adds nullable `review_run.triage_provider_name` and `triage_model_id` columns. |
+| `apps/api/src/db/provider-config-repository.mjs` | Modified | Role appears in masked views; create accepts/defaults/validates role; activate deactivates only rows with the target role; `getActiveProvider(role='judgment')` resolves/decrypts per role and returns `null` when absent. |
+| `apps/api/src/admin-contract.mjs` | Modified | Create accepts optional `role` defaulting to `judgment`; unsupported roles return 422 before repository access; PATCH with any `role` field returns 422 because role is immutable. |
+| `apps/api/src/live-review-pipeline.mjs` | Modified | Resolves `judgment` as required and `triage` as optional on every run, passes both provider payloads to `/internal/review`, and returns role provenance to the orchestrator. |
+| `apps/api/src/jobs/review-orchestrator.mjs` | Modified | Completion update now carries optional `triageProviderName`/`triageModelId` alongside judgment provenance for repository implementations that persist the new fields. |
+| `apps/api/tests/llm-provider-config-migration.test.mjs` | Modified | Covers simultaneous active roles, duplicate active same-role rejection, nullable triage provenance columns, and loud ambiguous DOWN behavior. |
+| `apps/api/tests/provider-config-repository.test.mjs` | Created | Covers role-scoped `getActiveProvider`, same-role-only activation deactivation, cross-role activation preservation, and unsupported role rejection. |
+| `apps/api/tests/admin-contract.test.mjs` | Modified | Adds role validation/PATCH immutability cases and updates live CRUD/activation assertions for one active provider per role. |
+| `apps/api/tests/active-provider-resolution.test.mjs` | Modified | Verifies missing judgment fails explicitly, missing triage passes `null`, active triage is forwarded, and judgment switches do not unset active triage. |
+| `apps/api/tests/review-orchestrator.test.mjs` | Modified | Adds a fake-repository unit test proving triage provenance is handed to the completed-run update. |
+| `apps/web/src/app/admin/admin-providers-view.ts` | Modified | Adds provider role types and create payload role; update payload remains role-free. |
+| `apps/web/src/app/admin/admin-providers-page.ts` | Modified | Adds Role table column and create-only role select; edit/update continues to omit role. |
+| `apps/web/tests/admin-providers-view.test.mjs` | Modified | Covers role in rows/create payload and verifies update payloads never emit role. |
+| `openspec/changes/precise-thesis-review-pipeline/tasks.md` | Modified | Marked Work Unit 9 RED/GREEN/TRIANGULATE/REFACTOR/Verify/Rollback complete and corrected the migration filenames to the actual next numbers (`0008`/`0009`). |
+| `openspec/changes/precise-thesis-review-pipeline/apply-progress.md` | Modified | Added this WU9 progress section. |
+| `CHECKLIST.md` | Modified | Updated current next action to Work Unit 10 after WU9 completion. |
+
+## Test Commands Run (PR6 / WU9)
+
+| Phase | Command | Result |
+| --- | --- | --- |
+| WU9 RED (web pure view) | `pnpm --dir apps/web test -- tests/admin-providers-view.test.mjs` | Failed before production changes: `buildCreateProviderPayload includes role...` actual payload omitted `role: 'triage'`. |
+| WU9 RED (API focused) | `cd apps/api && node --import tsx --test --test-concurrency=1 tests/admin-contract.test.mjs tests/review-orchestrator.test.mjs tests/active-provider-resolution.test.mjs tests/provider-config-repository.test.mjs tests/llm-provider-config-migration.test.mjs` | Failed before production changes: old zero-active message, admin role cases returned `503` instead of 422, repository rows returned `role: undefined`, invalid role did not reject, migration insert failed because `role` column did not exist, and orchestrator omitted triage provenance. |
+| WU9 GREEN (web suite through package runner) | `pnpm --dir apps/web test -- tests/admin-providers-view.test.mjs` | **70 pass / 0 fail**. |
+| WU9 GREEN (migration/repository focused) | `cd apps/api && node --import tsx --test --test-concurrency=1 tests/llm-provider-config-migration.test.mjs tests/provider-config-repository.test.mjs` | **3 pass / 0 fail**. Includes migration up/down cycle and the ambiguous DOWN failure assertion. |
+| WU9 GREEN (API focused) | `cd apps/api && node --import tsx --test --test-concurrency=1 tests/admin-contract.test.mjs tests/review-orchestrator.test.mjs tests/active-provider-resolution.test.mjs tests/provider-config-repository.test.mjs tests/llm-provider-config-migration.test.mjs` | **26 pass / 0 fail**. |
+
+## Scope Notes / Follow-ups (PR6 / WU9)
+
+- Real DeepSeek triage behavior remains intentionally out of scope for Work Unit 10. WU9 only resolves and forwards the optional triage provider payload; the worker still treats triage as optional/no-op until WU10.
+- WU9 correction: `apps/api/src/db/review-repository.mjs` now persists `triageProviderName`/`triageModelId` into nullable `review_run.triage_provider_name`/`triage_model_id` through `updateReviewRunStatus`; focused API verification covers repository persistence, orchestrator forwarding, and admin role-null validation.
+
+## Remaining Tasks
+
+- [ ] Work Unit 10 — Real `DeepSeekProvider` wired as `triage` (PR7)
+
+## Change Status
+
+Work Unit 9 implementation and focused verification are complete. Broad final package verification is recorded in the parent handoff for this apply pass.
+
+## Final Verification Evidence (PR6 / WU9)
+
+- `pnpm --dir apps/api test && pnpm --dir apps/web test` without `DATABASE_URL` was attempted first: API reached **155 pass / 1 fail**; the only failure was the pre-existing/environment-scoped `tests/smoke.test.mjs` expectation (`503 !== 401`) when the session guard cannot resolve the reviewer repository without a database URL. This matches the WU8 environment note and is not a WU9 regression.
+- `DATABASE_URL=postgres://pg1:pg1@localhost:5432/pg1 pnpm --dir apps/api test && pnpm --dir apps/web test` passed: API **156 pass / 0 fail**, web **70 pass / 0 fail**.
+- Explicit migration CLI cycle passed against local Postgres: `cd apps/api && DATABASE_URL=postgres://pg1:pg1@localhost:5432/pg1 node --import tsx src/db/migrate.mjs up && DATABASE_URL=postgres://pg1:pg1@localhost:5432/pg1 node --import tsx src/db/migrate.mjs down` printed both `up completed` and `down completed`.
+- WU9 correction focused verification passed: `cd apps/api && node --import tsx --test --test-concurrency=1 tests/review-repository.test.mjs tests/admin-contract.test.mjs tests/review-orchestrator.test.mjs` reported **29 pass / 0 fail** after RED failures for missing triage persistence and explicit-null role handling.
+
+---
+
+# PR7 — Real DeepSeek Triage (Work Unit 10)
+
+## Completed Implementation Tasks
+
+- [x] Work Unit 10 RED: Added `services/worker/tests/test_deepseek_provider.py` plus triage-focused updates to `test_provider_factory.py`, `test_cag_review.py`, and `test_review_endpoint.py` before production changes. The focused RED run failed for the expected missing behavior: `app.providers.deepseek_provider` did not exist, `select_llm_provider("deepseek")` still returned the unimplemented provider, `run_cag_review()` did not accept `triage_provider`, `/internal/review` returned `501 not_implemented` for DeepSeek judgment, and triage stats were absent.
+- [x] Work Unit 10 GREEN: Created `services/worker/app/providers/deepseek_provider.py` using `httpx.Client` only; it lazily resolves explicit API key then `DEEPSEEK_API_KEY`, resolves `DEEPSEEK_BASE_URL` with default `https://api.deepseek.com`, posts to `/chat/completions`, maps `choices[0].message.content` and DeepSeek cache usage fields to `CompletionResult`, and raises typed config/upstream errors. `main.py` now wires `deepseek` to the real provider and passes optional `triage_provider` into `run_cag_review()`. `cag_review.py` now calls triage before judgment, skips judgment when triage says `suspect: false`, and fails open into judgment when triage errors or returns unusable output.
+- [x] Work Unit 10 TRIANGULATE: Tests cover missing DeepSeek key, explicit-key-over-env precedence, env-key fallback, upstream 4xx/5xx, missing text choices, suspect/not-suspect triage decisions, and triage provider failure without leaking the triage API key into response/error-shaped output.
+- [x] Work Unit 10 REFACTOR: Provider shape remains aligned with the cache-aware `LLMProvider.complete()` protocol; DeepSeek-specific request assembly and parsing helpers are private to `deepseek_provider.py`, while triage decision handling stays private to `cag_review.py`.
+- [x] Work Unit 10 Verify: Focused RED/GREEN worker tests and full worker package verification passed. A live DeepSeek triage smoke with a real `DEEPSEEK_API_KEY` was not performed in this delegated pass because no real credential was provided; automated tests prove the `stats.triage_skipped` judgment-call reduction path.
+
+## Files Changed (PR7 / WU10)
+
+| File | Action | What Was Done |
+|------|--------|---------------|
+| `services/worker/app/providers/deepseek_provider.py` | Created | Real DeepSeek OpenAI-compatible chat-completions provider with lazy key/base-url resolution, sanitized typed config/upstream errors, request-shape mapping, response text extraction, and usage/cache-token mapping. |
+| `services/worker/app/providers/unimplemented_provider.py` | Modified | Removed the registry-only DeepSeek stub; Groq remains unimplemented and fails loudly without touching credentials/network. |
+| `services/worker/app/main.py` | Modified | Imports/wires the real DeepSeek provider, maps DeepSeek config errors to `configuration_error`, maps provider upstream errors to `upstream_error`, and passes optional `triage_provider` into the CAG review loop. |
+| `services/worker/app/cag_review.py` | Modified | Adds triage classification before judgment, `triage_skipped` and `triage_errors` stats, and fail-open behavior for optional triage failures. |
+| `services/worker/tests/test_deepseek_provider.py` | Created | Proves request shape, response/usage mapping, env/default resolution, typed errors, and sanitized upstream failure text without real network calls. |
+| `services/worker/tests/test_provider_factory.py` | Modified | DeepSeek factory assertion now expects the real `DeepSeekProvider` with forwarded explicit key/model. |
+| `services/worker/tests/test_cag_review.py` | Modified | Adds suspect/not-suspect triage behavior and triage-error fail-open credential non-leak coverage. |
+| `services/worker/tests/test_review_endpoint.py` | Modified | Adds endpoint-level triage fail-open credential non-leak coverage and updates DeepSeek judgment missing-key behavior to the real provider. |
+| `openspec/changes/precise-thesis-review-pipeline/tasks.md` | Modified | Marked Work Unit 10 complete with the manual-real-key smoke noted as not performed in this delegated pass. |
+| `openspec/changes/precise-thesis-review-pipeline/apply-progress.md` | Modified | Added this PR7 / Work Unit 10 progress section. |
+| `CHECKLIST.md` | Modified | Updated the operational checklist from WU10 pending to verify/archive next. |
+
+## Test Commands Run (PR7 / WU10)
+
+| Phase | Command | Result |
+| --- | --- | --- |
+| WU10 RED | `cd services/worker && PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. python3 -m unittest tests.test_deepseek_provider tests.test_provider_factory tests.test_cag_review tests.test_review_endpoint -v` | Failed before production changes with `ModuleNotFoundError` / `ImportError` for `app.providers.deepseek_provider`, `TypeError: run_cag_review() got an unexpected keyword argument 'triage_provider'`, endpoint DeepSeek judgment returning `501` instead of the new config error, and missing `stats.triage_errors`. |
+| WU10 GREEN/TRIANGULATE focused | `cd services/worker && PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. python3 -m unittest tests.test_deepseek_provider tests.test_provider_factory tests.test_cag_review tests.test_review_endpoint -v` | **37 tests OK**. Covers DeepSeek request/usage mapping, config/upstream errors, triage skip/suspect/fail-open paths, and credential non-leak assertions. |
+| WU10 worker package verification | `pnpm --dir services/worker test` | **124 tests OK**. Output includes pre-existing FastAPI/Starlette deprecation warning and `EOF marker not found` line, but exits green. |
+
+## Scope Notes / Follow-ups (PR7 / WU10)
+
+- No real DeepSeek API call was made because no real `DEEPSEEK_API_KEY` was provided to this delegated pass. The provider-level tests use a fake `httpx.Client` and assert the exact outbound request shape without contacting the network.
+- Optional triage errors are intentionally not recorded with raw exception text in response stats; only `triage_errors` increments. This avoids leaking API keys if an upstream/provider exception includes credential-like text.
+- Groq remains `UnimplementedProvider`; judgment-only review continues working when no triage provider is configured.
+
+## Change Status
+
+Work Units 1–10 are complete. The next OpenSpec action is independent verification/archive by the parent orchestration flow.

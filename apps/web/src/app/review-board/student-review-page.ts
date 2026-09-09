@@ -7,98 +7,24 @@ import {
 } from "@angular/core";
 import { ReactiveFormsModule } from "@angular/forms";
 import { ActivatedRoute, RouterLink } from "@angular/router";
+import { forkJoin } from "rxjs";
+import { buildMarkdownReportDownload } from "../results/report-download-view";
+import type { ReportArtifact } from "../results/report-download-view";
 import {
-	type ReportArtifact,
-	buildMarkdownReportDownload,
-	selectMarkdownReportArtifact,
-} from "../results/report-download-view";
+	ThesisApiClient,
+	type ReviewRunResponse,
+} from "../thesis-api-client";
 import { validateSelectedFiles } from "../upload/upload-validation";
-import type { ReviewPriority } from "./review-board-view";
+import type { ReviewBoardApiCard } from "./review-board-api";
 import { buildReviewProgressView } from "./review-progress-view";
-
-interface DemoFallbackStudentReview {
-	readonly id: string;
-	readonly studentName: string;
-	readonly thesisTitle: string;
-	readonly boardState: string;
-	readonly priority: ReviewPriority;
-	readonly reviewerName: string;
-	readonly status: string | null;
-	readonly summary: string | null;
-	readonly reportArtifacts: readonly ReportArtifact[];
-	readonly checklist: readonly string[];
-}
-
-const DEMO_FALLBACK_STUDENT_REVIEWS: Record<string, DemoFallbackStudentReview> =
-	{
-		"ana-martinez": {
-			id: "ana-martinez",
-			studentName: "Ana Martínez",
-			thesisTitle: "Inclusive assessment practices in first-year programming",
-			boardState: "In Review",
-			priority: "Urgent",
-			reviewerName: "Dr. Rivera",
-			status: "rag_reviewing",
-			summary: null,
-			reportArtifacts: [],
-			checklist: [
-				"Client-side file validation",
-				"Rules pass",
-				"CAG review summary",
-				"Human approval",
-			],
-		},
-		"mila-perez": {
-			id: "mila-perez",
-			studentName: "Mila Pérez",
-			thesisTitle: "Feedback cycles in academic writing studios",
-			boardState: "Reviewed",
-			priority: "Low",
-			reviewerName: "Prof. Chen",
-			status: "completed",
-			summary:
-				"Automated checks completed. A human reviewer still controls approval.",
-			reportArtifacts: [
-				{
-					id: "report-md-1",
-					kind: "markdown",
-					filename: "mila-perez-review.md",
-					content_type: "text/markdown",
-					content:
-						"# Thesis Review\n\nRules + CAG review completed. Human approval remains required.\n",
-				},
-			],
-			checklist: [
-				"Client-side file validation",
-				"Rules pass",
-				"CAG review summary",
-				"Human approval",
-			],
-		},
-	};
-
-const DEFAULT_DEMO_FALLBACK_STUDENT_REVIEW: DemoFallbackStudentReview = {
-	id: "sample-student",
-	studentName: "Sample student",
-	thesisTitle: "Pending thesis upload",
-	boardState: "Pending",
-	priority: "Normal",
-	reviewerName: "Unassigned",
-	status: null,
-	summary: null,
-	reportArtifacts: [],
-	checklist: [
-		"Client-side file validation",
-		"Rules pass",
-		"CAG review summary",
-		"Human approval",
-	],
-};
+import { buildStudentReviewViewModel } from "./student-review-view";
 
 /**
- * Student review detail shell using clearly named demo fallback data until a
- * dedicated detail API is available. Existing upload/review APIs remain the
- * production path for persisted runs.
+ * Student review detail shell backed by the real review-board and
+ * review-run APIs — no fixtures, no fabricated demo data. `studentId` in the
+ * route is the review-board card id (there is no separate "student" DB
+ * concept). Existing upload/review APIs remain the production path for
+ * persisted runs; this page only reads.
  */
 @Component({
 	selector: "app-student-review-page",
@@ -107,85 +33,264 @@ const DEFAULT_DEMO_FALLBACK_STUDENT_REVIEW: DemoFallbackStudentReview = {
 	template: `
     <main aria-labelledby="student-review-title">
       <a routerLink="/review-board">Back to review board</a>
-      <p>Demo fallback student review projection until a dedicated detail API is available.</p>
 
-      <header>
-        <h1 id="student-review-title">{{ review().studentName }}</h1>
-        <p>{{ review().thesisTitle }}</p>
-        <p>State: {{ review().boardState }}</p>
-        <p>Priority: {{ review().priority }}</p>
-        <p>Reviewer: {{ review().reviewerName }}</p>
-        <p>Method shown: Rules + CAG review, grounded with RAG-retrieved normative context.</p>
-      </header>
+      @switch (view().kind) {
+        @case ('loading') {
+          <p>Loading student review...</p>
+        }
+        @case ('error') {
+          <p role="alert">{{ errorMessage() }}</p>
+        }
+        @case ('not_found') {
+          <p role="alert">No review-board card was found for "{{ notFoundStudentId() }}".</p>
+        }
+        @case ('found') {
+          <header>
+            <h1 id="student-review-title">{{ studentName() }}</h1>
+            <p>{{ thesisTitle() }}</p>
+            <p>State: {{ boardState() }}</p>
+            <p>Priority: {{ priority() }}</p>
+            <p>Reviewer: {{ reviewerName() }}</p>
+            <p>Method shown: Rules + CAG review, grounded with RAG-retrieved normative context.</p>
+          </header>
 
-      <section aria-labelledby="upload-title" (dragover)="onDragOver($event)" (drop)="onDrop($event)">
-        <h2 id="upload-title">Upload thesis file</h2>
-        <p>Choose or drop exactly one PDF or DOCX file, 20 MB or smaller.</p>
-        <form (submit)="onSubmit($event)">
-          <input type="file" accept=".pdf,.docx" (change)="onFilesSelected($event)" />
-          <button type="submit" [disabled]="!canSubmitUpload()">Validate selected file</button>
-        </form>
-        @if (validationMessage(); as message) {
-          <p role="alert">{{ message }}</p>
-        }
-        @if (uploadFeedback(); as feedback) {
-          <p>{{ feedback }}</p>
-        }
-      </section>
+          <section aria-labelledby="upload-title" (dragover)="onDragOver($event)" (drop)="onDrop($event)">
+            <h2 id="upload-title">Upload thesis file</h2>
+            <p>Choose or drop exactly one PDF or DOCX file, 20 MB or smaller.</p>
+            <form (submit)="onSubmit($event)">
+              <input type="file" accept=".pdf,.docx" (change)="onFilesSelected($event)" />
+              <button type="submit" [disabled]="!canSubmitUpload()">Validate selected file</button>
+            </form>
+            @if (validationMessage(); as message) {
+              <p role="alert">{{ message }}</p>
+            }
+            @if (uploadFeedback(); as feedback) {
+              <p>{{ feedback }}</p>
+            }
+          </section>
 
-      <section aria-labelledby="progress-title">
-        <h2 id="progress-title">Analysis progress</h2>
-        @if (review().status) {
-          <p>Stage: {{ progress().stage }}</p>
-          <p>Projected progress: {{ progress().percent }}%</p>
-          @if (progress().nextAction; as nextAction) {
-            <p role="alert">{{ nextAction }}</p>
-          }
-        } @else {
-          <p>No review run has started for this sample student.</p>
-        }
-      </section>
+          <section aria-labelledby="progress-title">
+            <h2 id="progress-title">Analysis progress</h2>
+            @if (studentStatus()) {
+              <p>Stage: {{ progress().stage }}</p>
+              <p>Projected progress: {{ progress().percent }}%</p>
+              @if (progress().nextAction; as nextAction) {
+                <p role="alert">{{ nextAction }}</p>
+              }
+            } @else {
+              <p>No review run has started for this student yet.</p>
+            }
+          </section>
 
-      <section aria-labelledby="report-title">
-        <h2 id="report-title">Report</h2>
-        @if (review().summary) {
-          <p>{{ review().summary }}</p>
-        } @else {
-          <p>No Markdown report is available yet.</p>
-        }
-        @if (markdownDownload(); as download) {
-          <button type="button" (click)="downloadMarkdownReport()">Download Markdown Report</button>
-          <p>Filename: {{ download.filename }}</p>
-        }
-      </section>
+          <section aria-labelledby="report-title">
+            <h2 id="report-title">Report</h2>
+            @if (markdownDownload(); as download) {
+              <button type="button" (click)="downloadMarkdownReport()">Download Markdown Report</button>
+              <p>Filename: {{ download.filename }}</p>
+            } @else {
+              <p>No Markdown report is available yet.</p>
+            }
+          </section>
 
-      <section aria-labelledby="checklist-title">
-        <h2 id="checklist-title">Reviewer checklist</h2>
-        <ul>
-          @for (item of review().checklist; track item) {
-            <li>{{ item }}</li>
-          }
-        </ul>
-      </section>
+          <section aria-labelledby="checklist-title">
+            <h2 id="checklist-title">Reviewer checklist</h2>
+            <ul>
+              <li>Client-side file validation</li>
+              <li>Rules pass</li>
+              <li>CAG review summary</li>
+              <li>Human approval</li>
+            </ul>
+          </section>
+        }
+      }
     </main>
   `,
+	styles: [`
+    :host {
+      display: block;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: var(--pg1-page-margin) var(--pg1-space-gutter);
+    }
+
+    main > a {
+      display: inline-block;
+      font-family: var(--pg1-font-mono);
+      font-size: var(--pg1-label-mono-size);
+      margin-bottom: var(--pg1-node-gap);
+    }
+
+    main > p {
+      font-family: var(--pg1-font-mono);
+      font-size: var(--pg1-label-mono-sm-size);
+      letter-spacing: var(--pg1-label-mono-sm-tracking);
+      color: var(--pg1-color-outline);
+      text-transform: uppercase;
+      margin-bottom: var(--pg1-space-gutter);
+    }
+
+    header {
+      margin-bottom: var(--pg1-space-gutter);
+      padding-bottom: var(--pg1-space-gutter);
+      border-bottom: var(--pg1-border-structural);
+    }
+
+    header h1 {
+      margin-bottom: calc(var(--pg1-space-unit) * 2);
+    }
+
+    header p:nth-of-type(1) {
+      font-style: italic;
+      color: var(--pg1-color-outline);
+      margin-bottom: var(--pg1-node-gap);
+    }
+
+    header p:nth-of-type(2),
+    header p:nth-of-type(3),
+    header p:nth-of-type(4) {
+      display: inline-block;
+      font-family: var(--pg1-font-mono);
+      font-size: var(--pg1-label-mono-size);
+      color: var(--pg1-color-ink);
+      margin-right: var(--pg1-node-gap);
+      margin-bottom: calc(var(--pg1-space-unit) * 2);
+    }
+
+    header p:nth-of-type(5) {
+      font-family: var(--pg1-font-mono);
+      font-size: var(--pg1-label-mono-sm-size);
+      letter-spacing: var(--pg1-label-mono-sm-tracking);
+      color: var(--pg1-color-outline);
+      margin-top: var(--pg1-node-gap);
+      margin-bottom: 0;
+    }
+
+    section {
+      margin-bottom: var(--pg1-space-gutter);
+      padding: var(--pg1-container-padding);
+      border: var(--pg1-border-hairline);
+    }
+
+    section h2 {
+      margin-bottom: var(--pg1-node-gap);
+    }
+
+    section[aria-labelledby='upload-title'] {
+      border: var(--pg1-border-current);
+      background: var(--pg1-color-surface-container-low);
+    }
+
+    section[aria-labelledby='upload-title']:hover,
+    section[aria-labelledby='upload-title']:focus-within {
+      background: var(--pg1-ink-wash-05);
+    }
+
+    section form {
+      display: flex;
+      align-items: center;
+      gap: var(--pg1-node-gap);
+      flex-wrap: wrap;
+      margin-top: var(--pg1-node-gap);
+    }
+
+    section p {
+      margin-bottom: var(--pg1-space-unit);
+    }
+
+    section [role='alert'] {
+      margin-top: var(--pg1-node-gap);
+    }
+
+    section button[type='button'] {
+      margin-top: var(--pg1-node-gap);
+    }
+
+    ul {
+      display: flex;
+      flex-direction: column;
+      gap: calc(var(--pg1-space-unit) * 2);
+    }
+
+    li {
+      font-family: var(--pg1-font-mono);
+      font-size: var(--pg1-label-mono-size);
+      padding: calc(var(--pg1-space-unit) * 2) 0;
+      border-bottom: var(--pg1-border-hairline);
+    }
+
+    li:last-child {
+      border-bottom: none;
+    }
+  `],
 })
 export class StudentReviewPage {
 	private readonly route = inject(ActivatedRoute);
+	private readonly api = inject(ThesisApiClient);
 	private readonly studentId = signal(
-		this.route.snapshot.paramMap.get("studentId") ?? "sample-student",
+		this.route.snapshot.paramMap.get("studentId") ?? "",
 	);
 	private readonly selectedFiles = signal<File[]>([]);
 
+	private readonly cards = signal<readonly ReviewBoardApiCard[] | null>(null);
+	private readonly run = signal<ReviewRunResponse | null>(null);
+	private readonly reportArtifacts = signal<readonly ReportArtifact[] | null>(
+		null,
+	);
+	private readonly loadError = signal<string | null>(null);
+
 	protected readonly uploadFeedback = signal<string | null>(null);
-	protected readonly review = computed(
-		() =>
-			DEMO_FALLBACK_STUDENT_REVIEWS[this.studentId()] ??
-			DEFAULT_DEMO_FALLBACK_STUDENT_REVIEW,
+	protected readonly view = computed(() =>
+		buildStudentReviewViewModel({
+			studentId: this.studentId(),
+			cards: this.cards(),
+			loadError: this.loadError(),
+			run: this.run(),
+			reportArtifacts: this.reportArtifacts(),
+		}),
 	);
+
+	protected readonly errorMessage = computed(() => {
+		const view = this.view();
+		return view.kind === "error" ? view.message : "";
+	});
+	protected readonly notFoundStudentId = computed(() => {
+		const view = this.view();
+		return view.kind === "not_found" ? view.studentId : "";
+	});
+	protected readonly studentName = computed(() => {
+		const view = this.view();
+		return view.kind === "found" ? view.studentName : "";
+	});
+	protected readonly thesisTitle = computed(() => {
+		const view = this.view();
+		return view.kind === "found" ? view.thesisTitle : "";
+	});
+	protected readonly boardState = computed(() => {
+		const view = this.view();
+		return view.kind === "found" ? view.boardState : "";
+	});
+	protected readonly priority = computed(() => {
+		const view = this.view();
+		return view.kind === "found" ? view.priority : "";
+	});
+	protected readonly reviewerName = computed(() => {
+		const view = this.view();
+		return view.kind === "found" ? view.reviewerName : "";
+	});
+	protected readonly studentStatus = computed(() => {
+		const view = this.view();
+		return view.kind === "found" ? view.status : null;
+	});
 	protected readonly progress = computed(() =>
-		buildReviewProgressView(this.review().status ?? "queued"),
+		buildReviewProgressView(this.studentStatus() ?? "queued"),
 	);
+	protected readonly markdownDownload = computed(() => {
+		const view = this.view();
+		return view.kind === "found"
+			? buildMarkdownReportDownload(view.reportArtifact)
+			: null;
+	});
+
 	protected readonly uploadValidation = computed(() =>
 		validateSelectedFiles(this.selectedFiles()),
 	);
@@ -198,11 +303,10 @@ export class StudentReviewPage {
 			? validation.message
 			: null;
 	});
-	protected readonly markdownDownload = computed(() =>
-		buildMarkdownReportDownload(
-			selectMarkdownReportArtifact(this.review().reportArtifacts),
-		),
-	);
+
+	constructor() {
+		this.loadStudentReview();
+	}
 
 	protected onFilesSelected(event: Event): void {
 		const input = event.target as HTMLInputElement;
@@ -244,6 +348,39 @@ export class StudentReviewPage {
 		anchor.download = download.filename;
 		anchor.click();
 		URL.revokeObjectURL(url);
+	}
+
+	private loadStudentReview(): void {
+		this.api.getReviewBoardCards().subscribe({
+			next: (response) => {
+				this.cards.set(response.items);
+				this.loadError.set(null);
+
+				const card = response.items.find(
+					(item) => item.id === this.studentId(),
+				);
+				if (card?.current_review_run_id) {
+					this.loadReviewRunDetail(card.current_review_run_id);
+				}
+			},
+			error: () => this.loadError.set("Unable to load the review board."),
+		});
+	}
+
+	private loadReviewRunDetail(runId: string): void {
+		forkJoin({
+			run: this.api.getReviewRun(runId),
+			reportArtifacts: this.api.getReportArtifacts(runId),
+		}).subscribe({
+			next: ({ run, reportArtifacts }) => {
+				this.run.set(run);
+				this.reportArtifacts.set(reportArtifacts.items);
+			},
+			error: () => {
+				this.run.set(null);
+				this.reportArtifacts.set(null);
+			},
+		});
 	}
 
 	private setSelectedFiles(files: File[]): void {

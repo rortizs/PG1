@@ -6,6 +6,12 @@ import {
 	isKnownUploadedDocument,
 	registerUploadedDocument,
 } from "./live-review-pipeline.mjs";
+import {
+	checkSession,
+	handleAuthRequest,
+	resolveReviewerRepository,
+	safeInsertAuditEvent,
+} from "./auth-contract.mjs";
 
 // Stub/fallback lifecycle: preserved exactly as-is. Any review-run request
 // for a document id that was never durably persisted (fabricated ids, or
@@ -30,6 +36,11 @@ const ROUTES = [
 	["GET", "/api/v1/review-board/cards"],
 	["PATCH", "/api/v1/review-board/cards/{card_id}/priority"],
 	["POST", "/api/v1/review-board/cards/{card_id}/approval"],
+	// reviewer-authentication design.md D7: public login/logout, delegated to
+	// the isolated `auth-contract.mjs` module (same isolation split
+	// `admin-contract.mjs` uses) via `handleAuthRequest` below.
+	["POST", "/api/v1/auth/sessions"],
+	["DELETE", "/api/v1/auth/sessions/current"],
 ];
 
 export function listApiRoutes() {
@@ -41,22 +52,65 @@ export async function handleApiRequest({
 	path,
 	query = {},
 	body = {},
+	headers = {},
 }) {
 	const normalizedMethod = method.toUpperCase();
+
+	// reviewer-authentication design.md D7: the two public auth routes are
+	// delegated whole to `handleAuthRequest` before anything else (no
+	// pagination parsing applies to them, and — per Unit 3a, not this unit —
+	// this is also where the future session gate will sit, "once, at the
+	// top, after the two public auth branches").
+	if (
+		(normalizedMethod === "POST" && path === "/api/v1/auth/sessions") ||
+		(normalizedMethod === "DELETE" && path === "/api/v1/auth/sessions/current")
+	) {
+		return handleAuthRequest({ method: normalizedMethod, path, body, headers });
+	}
+
+	// reviewer-authentication design.md D6/Scope Guard: deny-by-default,
+	// before any other route's handler logic runs. A genuinely unknown
+	// (method, path) combination is checked against `ROUTES` FIRST and, if
+	// unmatched, falls straight through to the existing 404 branch below
+	// without ever consulting the session gate — an unauthenticated probe of
+	// a non-existent route must never be distinguishable from an
+	// unauthenticated probe of a real one via a 401-vs-404 differential
+	// (TRIANGULATE). Any entry added to `ROUTES` later is protected by this
+	// single shared gate without needing its own guard wiring ("protected by
+	// omission").
+	// reviewer-authentication design.md D8 (Unit 4): the resolved session (not
+	// just the pass/fail error) is kept for the rest of this request, so the
+	// upload/approval branches below can source attribution from it instead
+	// of trusting a client-supplied body field. `null` for public auth
+	// routes and for any route that fails the gate below (in which case the
+	// function returns before either branch is reached).
+	let requestSession = null;
+	if (routeExists(normalizedMethod, path)) {
+		const sessionResult = await checkRequestSession(headers);
+		if (sessionResult.error) return sessionResult.error;
+		requestSession = sessionResult.session;
+	}
+
 	const pagination = parsePagination(query);
 	if (pagination.error) return pagination.error;
 
 	if (normalizedMethod === "POST" && path === "/api/v1/thesis-documents") {
 		if (body.files !== undefined) {
+			// reviewer-authentication design.md D8 (Unit 4): the uploader's
+			// identity is sourced exclusively from the authenticated session —
+			// `body.uploaderUserId` is never read, so a forged body value has
+			// nothing to forge into. `requestSession` is guaranteed non-null here
+			// (this route is gated above, so the function would already have
+			// returned a 401/503 otherwise).
 			const result = await processThesisDocumentUpload({
 				files: body.files,
-				uploaderUserId: body.uploaderUserId ?? null,
+				uploaderUserId: requestSession.reviewerId,
 				metadata: body.metadata ?? {},
 				storage: getDocumentStorage(),
 			});
 			if (result.status === 201) {
 				try {
-					await registerUploadedDocument({
+					const registration = await registerUploadedDocument({
 						documentId: result.body.id,
 						sha256: result.body.sha256,
 						storageKey: result.body.storage_key,
@@ -66,6 +120,14 @@ export async function handleApiRequest({
 						uploaderUserId: result.body.uploaded_by_user_id,
 						metadata: result.body.metadata,
 					});
+					if (registration.persisted) {
+						await safeInsertAuditEvent({
+							actorUserId: requestSession.reviewerId,
+							entityType: "thesis_document",
+							entityId: registration.dbId,
+							eventType: "thesis_uploaded",
+						});
+					}
 				} catch (error) {
 					return errorResponse(
 						503,
@@ -149,14 +211,33 @@ export async function handleApiRequest({
 		const repository = resolveBoardRepository();
 		if (!repository) return boardRepositoryUnavailable();
 		try {
-			const card = await repository.approveReviewBoardCard(
-				decodeURIComponent(approval[1]),
-				{ reviewerName: body.reviewerName ?? body.reviewer_name ?? null },
-			);
+			// reviewer-authentication design.md D8 (Unit 4): approval identity is
+			// sourced exclusively from the authenticated session — the body's
+			// `reviewerName`/`reviewer_name` fields are deleted outright, not
+			// merely ignored, so nothing can silently re-read them later.
+			// `requestSession` is guaranteed non-null here (route gated above).
+			const boardCardId = decodeURIComponent(approval[1]);
+			const card = await repository.approveReviewBoardCard(boardCardId, {
+				reviewerId: requestSession.reviewerId,
+				reviewerName: requestSession.displayName,
+			});
+			if (card) {
+				// `boardCardId` is `board_<workflow_item_id>` (see
+				// `toPublicBoardCardId` in review-repository.mjs); parsed locally
+				// so the audit write has a real numeric entity id without exposing
+				// that repository-internal helper.
+				const match = boardCardId.match(/^board_(\d+)$/);
+				await safeInsertAuditEvent({
+					actorUserId: requestSession.reviewerId,
+					entityType: "review_workflow_item",
+					entityId: match ? Number(match[1]) : null,
+					eventType: "card_approved",
+				});
+			}
 			return card
 				? ok(card)
 				: errorResponse(404, "not_found", "Review-board card was not found.", {
-						card_id: decodeURIComponent(approval[1]),
+						card_id: boardCardId,
 					});
 		} catch (error) {
 			return errorResponse(
@@ -177,7 +258,7 @@ export async function handleApiRequest({
 		const documentId = decodeURIComponent(reviewRunCreate[1]);
 		const pipelineVersion = body.pipelineVersion ?? "pipeline-v1";
 		try {
-			const livePipeline = isKnownUploadedDocument(documentId)
+			const livePipeline = (await isKnownUploadedDocument(documentId))
 				? getLivePipeline()
 				: null;
 			const lifecycle = livePipeline
@@ -230,6 +311,66 @@ export async function handleApiRequest({
 		method: normalizedMethod,
 		path,
 	});
+}
+
+/**
+ * Matches a `ROUTES`-style path template
+ * (`/api/v1/thesis-documents/{document_id}/review-runs`) without compiling a
+ * request-time regex. Dynamic `{param}` segments match exactly one non-empty
+ * path segment, which mirrors the route shape used by the per-branch matchers
+ * below while avoiding a non-literal RegExp surface.
+ */
+function pathMatchesTemplate(template, path) {
+	const templateSegments = template.split("/");
+	const pathSegments = String(path ?? "").split("/");
+	if (templateSegments.length !== pathSegments.length) return false;
+	return templateSegments.every((segment, index) => {
+		if (segment.startsWith("{") && segment.endsWith("}")) {
+			return pathSegments[index].length > 0;
+		}
+		return segment === pathSegments[index];
+	});
+}
+
+/** Whether `(method, path)` matches any entry in `ROUTES` (auth routes included). */
+function routeExists(method, path) {
+	return ROUTES.some(
+		([routeMethod, routeTemplate]) =>
+			routeMethod === method && pathMatchesTemplate(routeTemplate, path),
+	);
+}
+
+/**
+ * reviewer-authentication design.md D6/D8: resolves and runs the session
+ * gate for one request. Returns `{ error: null, session }` when the request
+ * may proceed (Unit 4: the resolved `session` is now returned too, not just
+ * discarded, so `handleApiRequest` can source attribution from it), or
+ * `{ error, session: null }` (a standard-shaped `401`/`503` response)
+ * otherwise. Wraps `checkSession` in `try/catch` so a genuine DB-
+ * connectivity failure during the check (e.g. Postgres unreachable)
+ * surfaces as a clean `503`, never an unhandled rejection.
+ */
+async function checkRequestSession(headers) {
+	const resolvedRepository = resolveReviewerRepository();
+	if (resolvedRepository.error) {
+		return { error: resolvedRepository.error, session: null };
+	}
+	try {
+		const { session, error } = await checkSession(headers, {
+			repository: resolvedRepository.repository,
+		});
+		return { error: error ?? null, session: session ?? null };
+	} catch (dbError) {
+		return {
+			error: errorResponse(
+				503,
+				"service_unavailable",
+				"The API requires a reachable database to verify the reviewer session.",
+				{ reason: dbError.message },
+			),
+			session: null,
+		};
+	}
 }
 
 function resolveBoardRepository() {
@@ -295,9 +436,10 @@ async function withRealSummary(run, livePipeline, runId) {
 		try {
 			const reviewRunDbId = livePipeline.getReviewRunDbId(runId);
 			if (reviewRunDbId) {
-				findings = (
-					await livePipeline.repository.listFindingsForReviewRun(reviewRunDbId)
-				).length;
+				const persistedFindings = await livePipeline.repository.listFindingsForReviewRun(
+					reviewRunDbId,
+				);
+				findings = persistedFindings.length;
 				// llm-provider-admin Work Unit 8: which provider/model handled
 				// this run. A run completed before this change (or whose
 				// provenance was never recorded for any other reason) has NULL

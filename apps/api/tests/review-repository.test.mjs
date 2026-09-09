@@ -145,16 +145,19 @@ test("review-repository seeds normative sources and writes thesis_document -> re
 			completedAt: new Date(),
 			llmProviderName: "claude",
 			llmModelId: "claude-sonnet-4-20250514",
+			triageProviderName: "deepseek",
+			triageModelId: "deepseek-chat",
 		});
 		const provenanceRow = await client.query(
-			"SELECT llm_provider_name, llm_model_id FROM review_run WHERE id = $1",
+			`SELECT llm_provider_name, llm_model_id,
+			        triage_provider_name, triage_model_id
+			 FROM review_run WHERE id = $1`,
 			[reviewRunId],
 		);
 		assert.equal(provenanceRow.rows[0].llm_provider_name, "claude");
-		assert.equal(
-			provenanceRow.rows[0].llm_model_id,
-			"claude-sonnet-4-20250514",
-		);
+		assert.equal(provenanceRow.rows[0].llm_model_id, "claude-sonnet-4-20250514");
+		assert.equal(provenanceRow.rows[0].triage_provider_name, "deepseek");
+		assert.equal(provenanceRow.rows[0].triage_model_id, "deepseek-chat");
 
 		const provenance = await repository.getReviewRunProvenance(reviewRunId);
 		assert.deepEqual(provenance, {
@@ -163,8 +166,25 @@ test("review-repository seeds normative sources and writes thesis_document -> re
 		});
 
 		// A run whose provenance was never set (e.g. pre-existing runs from
-		// before this change) must read back gracefully as nulls, never throw.
+		// before this change) must preserve nullable DB provenance as nulls when
+		// `updateReviewRunStatus` is called without provenance fields.
 		const otherRunId = await repository.insertReviewRun({ thesisDocumentId });
+		await repository.updateReviewRunStatus(otherRunId, {
+			status: "completed",
+			completedAt: new Date(),
+		});
+		const emptyProvenanceRow = await client.query(
+			`SELECT llm_provider_name, llm_model_id,
+			        triage_provider_name, triage_model_id
+			 FROM review_run WHERE id = $1`,
+			[otherRunId],
+		);
+		assert.deepEqual(emptyProvenanceRow.rows[0], {
+			llm_provider_name: null,
+			llm_model_id: null,
+			triage_provider_name: null,
+			triage_model_id: null,
+		});
 		const noProvenance = await repository.getReviewRunProvenance(otherRunId);
 		assert.deepEqual(noProvenance, { llmProviderName: null, llmModelId: null });
 

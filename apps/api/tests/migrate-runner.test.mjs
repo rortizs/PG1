@@ -38,6 +38,9 @@ const REQUIRED_TABLES = [
 	...BASELINE_TABLES,
 	"llm_provider_config",
 	"review_workflow_item",
+	// reviewer-authentication PR1 (design.md D1): 0007 adds these two tables.
+	"reviewer",
+	"reviewer_session",
 ];
 
 test("splitMigration parses -- UP and -- DOWN sections from raw SQL", async () => {

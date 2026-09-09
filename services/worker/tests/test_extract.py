@@ -1,14 +1,27 @@
 import importlib
 import io
 import os
+import subprocess
 import unittest
+from pathlib import Path
 from threading import Event
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
-from app.extraction import ExtractedPage, detect_sections, extract_text
+import app.extraction as extraction
+from app.extraction import (
+    DOCX_CONTENT_TYPES,
+    RESOLVED_DOCX_CONTENT_TYPE,
+    ExtractedPage,
+    detect_sections,
+    extract_text,
+)
 from fixtures import build_minimal_docx, build_minimal_pdf
+
+DocxConversionError = getattr(extraction, "DocxConversionError")
+_convert_docx_to_pdf = getattr(extraction, "_convert_docx_to_pdf")
 
 
 def _page(page_number, text):
@@ -120,6 +133,129 @@ class SectionDetectionTest(unittest.TestCase):
         )
 
 
+class DocxConversionTest(unittest.TestCase):
+    def setUp(self):
+        self._previous_binary = os.environ.pop("SOFFICE_BINARY", None)
+
+    def tearDown(self):
+        if self._previous_binary is not None:
+            os.environ["SOFFICE_BINARY"] = self._previous_binary
+        else:
+            os.environ.pop("SOFFICE_BINARY", None)
+
+    def test_docx_upload_uses_safe_libreoffice_args_and_cleans_tempdir(self):
+        docx_bytes = build_minimal_docx(["The hostile filename must not reach argv."])
+        converted_pdf = build_minimal_pdf("CAPITULO 1")
+        captured = {}
+
+        def fake_run(args, **kwargs):
+            outdir = Path(args[args.index("--outdir") + 1])
+            captured["args"] = args
+            captured["kwargs"] = kwargs
+            captured["outdir"] = outdir
+            captured["input_path"] = Path(args[-1])
+            self.assertEqual(captured["input_path"].name, "input.docx")
+            self.assertEqual(captured["input_path"].read_bytes(), docx_bytes)
+            (outdir / "input.pdf").write_bytes(converted_pdf)
+            return subprocess.CompletedProcess(args=args, returncode=0, stdout=b"", stderr=b"")
+
+        with patch("app.extraction.shutil.which", return_value="/usr/bin/soffice"), patch(
+            "app.extraction.subprocess.run", side_effect=fake_run
+        ):
+            result = extract_text(
+                filename='"; rm -rf /.docx',
+                content_type=next(iter(DOCX_CONTENT_TYPES)),
+                data=docx_bytes,
+            )
+
+        self.assertEqual(result.content_type, RESOLVED_DOCX_CONTENT_TYPE)
+        self.assertEqual(result.pages[0].page_number, 1)
+        self.assertEqual(result.pages[0].section_title, "CAPITULO 1")
+        self.assertEqual(result.sections[0].title, "CAPITULO 1")
+        self.assertFalse(captured["outdir"].exists())
+        self.assertIsInstance(captured["args"], list)
+        self.assertEqual(captured["args"][0], "/usr/bin/soffice")
+        self.assertIn("--headless", captured["args"])
+        self.assertIn("--norestore", captured["args"])
+        self.assertIn("--convert-to", captured["args"])
+        self.assertIn("pdf", captured["args"])
+        self.assertTrue(
+            any(str(arg).startswith("-env:UserInstallation=file://") for arg in captured["args"])
+        )
+        self.assertNotEqual(captured["kwargs"].get("shell"), True)
+        self.assertEqual(captured["kwargs"]["capture_output"], True)
+        self.assertEqual(captured["kwargs"]["check"], False)
+        self.assertGreater(captured["kwargs"]["timeout"], 0)
+        self.assertNotIn('"; rm -rf /', " ".join(str(arg) for arg in captured["args"]))
+
+    def test_docx_and_native_pdf_share_downstream_per_page_extraction(self):
+        pdf_bytes = build_minimal_pdf("CAPITULO 1")
+        docx_bytes = build_minimal_docx(["DOCX bytes are converted before extraction."])
+
+        with patch("app.extraction._convert_docx_to_pdf", return_value=pdf_bytes) as convert:
+            docx_result = extract_text(
+                filename="thesis.docx",
+                content_type=next(iter(DOCX_CONTENT_TYPES)),
+                data=docx_bytes,
+            )
+        pdf_result = extract_text(
+            filename="thesis.pdf",
+            content_type="application/pdf",
+            data=pdf_bytes,
+        )
+
+        convert.assert_called_once_with(docx_bytes)
+        self.assertEqual(docx_result.content_type, RESOLVED_DOCX_CONTENT_TYPE)
+        self.assertEqual(
+            [(p.page_number, p.section_title, p.text) for p in docx_result.pages],
+            [(p.page_number, p.section_title, p.text) for p in pdf_result.pages],
+        )
+        self.assertEqual(
+            [(s.title, s.section_type, s.start_page_number) for s in docx_result.sections],
+            [(s.title, s.section_type, s.start_page_number) for s in pdf_result.sections],
+        )
+
+    def test_missing_libreoffice_binary_fails_loudly(self):
+        with patch("app.extraction.shutil.which", return_value=None):
+            with self.assertRaisesRegex(DocxConversionError, "LibreOffice.*SOFFICE_BINARY"):
+                _convert_docx_to_pdf(b"docx bytes")
+
+    def test_libreoffice_non_zero_exit_fails_loudly_and_cleans_tempdir(self):
+        captured = {}
+
+        def fake_run(args, **kwargs):
+            captured["outdir"] = Path(args[args.index("--outdir") + 1])
+            return subprocess.CompletedProcess(
+                args=args,
+                returncode=3,
+                stdout=b"",
+                stderr=b"conversion failed",
+            )
+
+        with patch("app.extraction.shutil.which", return_value="/usr/bin/soffice"), patch(
+            "app.extraction.subprocess.run", side_effect=fake_run
+        ):
+            with self.assertRaisesRegex(DocxConversionError, "exit 3.*conversion failed"):
+                _convert_docx_to_pdf(b"docx bytes")
+
+        self.assertFalse(captured["outdir"].exists())
+
+    def test_libreoffice_timeout_fails_loudly_and_cleans_tempdir(self):
+        captured = {}
+
+        def fake_run(args, **kwargs):
+            captured["outdir"] = Path(args[args.index("--outdir") + 1])
+            raise subprocess.TimeoutExpired(cmd=args, timeout=kwargs["timeout"])
+
+        with patch("app.extraction.shutil.which", return_value="/usr/bin/soffice"), patch(
+            "app.extraction.subprocess.run", side_effect=fake_run
+        ):
+            with self.assertRaisesRegex(DocxConversionError, "timed out"):
+                _convert_docx_to_pdf(b"docx bytes")
+
+        self.assertFalse(captured["outdir"].exists())
+
+
 class ExtractEndpointTest(unittest.TestCase):
     def setUp(self):
         main = importlib.import_module("app.main")
@@ -147,7 +283,11 @@ class ExtractEndpointTest(unittest.TestCase):
         self.assertEqual(body["sections"], [])
 
     def test_extracts_sections_and_per_page_section_title_from_a_real_pdf(self):
-        pdf_bytes = build_minimal_pdf("CAPÍTULO 1")
+        # The hand-built PDF fixture intentionally uses ASCII-only content:
+        # PDF literal strings are not Latin-1 text by default, and pypdf
+        # versions differ on whether they recover accented glyphs from such
+        # minimal fixtures. Accent-folding is covered by pure section tests.
+        pdf_bytes = build_minimal_pdf("CAPITULO 1")
 
         response = self.client.post(
             "/internal/extract",
@@ -158,25 +298,27 @@ class ExtractEndpointTest(unittest.TestCase):
         body = response.json()
         self.assertEqual(len(body["sections"]), 1)
         section = body["sections"][0]
-        self.assertEqual(section["title"], "CAPÍTULO 1")
+        self.assertEqual(section["title"], "CAPITULO 1")
         self.assertEqual(section["section_type"], "chapter")
         self.assertEqual(section["start_page_number"], 1)
         self.assertIsNone(section["parent_index"])
-        self.assertEqual(body["pages"][0]["section_title"], "CAPÍTULO 1")
+        self.assertEqual(body["pages"][0]["section_title"], "CAPITULO 1")
 
-    def test_extracts_text_from_a_real_docx(self):
-        docx_bytes = build_minimal_docx(["First paragraph.", "Second paragraph."])
+    def test_extracts_docx_via_converted_pdf(self):
+        docx_bytes = build_minimal_docx(["Original DOCX bytes."])
+        converted_pdf = build_minimal_pdf("Converted PDF page text")
 
-        response = self.client.post(
-            "/internal/extract",
-            files={
-                "file": (
-                    "thesis.docx",
-                    io.BytesIO(docx_bytes),
-                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                )
-            },
-        )
+        with patch("app.extraction._convert_docx_to_pdf", return_value=converted_pdf):
+            response = self.client.post(
+                "/internal/extract",
+                files={
+                    "file": (
+                        "thesis.docx",
+                        io.BytesIO(docx_bytes),
+                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    )
+                },
+            )
 
         self.assertEqual(response.status_code, 200)
         body = response.json()
@@ -184,9 +326,9 @@ class ExtractEndpointTest(unittest.TestCase):
             body["content_type"],
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         )
-        self.assertGreaterEqual(body["page_count"], 1)
-        self.assertIn("First paragraph.", body["full_text"])
-        self.assertIn("Second paragraph.", body["full_text"])
+        self.assertEqual(body["page_count"], 1)
+        self.assertEqual(body["pages"][0]["page_number"], 1)
+        self.assertIn("Converted PDF page text", body["full_text"])
 
     def test_rejects_unsupported_content_type(self):
         response = self.client.post(
@@ -218,17 +360,21 @@ class ExtractEndpointTest(unittest.TestCase):
 
         self.assertEqual(response.status_code, 422)
 
-    def test_rejects_corrupt_docx(self):
-        response = self.client.post(
-            "/internal/extract",
-            files={
-                "file": (
-                    "thesis.docx",
-                    io.BytesIO(b"not a real zip/docx package"),
-                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                )
-            },
-        )
+    def test_rejects_docx_when_conversion_fails(self):
+        with patch(
+            "app.extraction._convert_docx_to_pdf",
+            side_effect=DocxConversionError("LibreOffice conversion failed"),
+        ):
+            response = self.client.post(
+                "/internal/extract",
+                files={
+                    "file": (
+                        "thesis.docx",
+                        io.BytesIO(b"not a real zip/docx package"),
+                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    )
+                },
+            )
 
         self.assertEqual(response.status_code, 422)
 
@@ -249,12 +395,16 @@ class MarkItDownLlmTextTest(unittest.TestCase):
         def _factory_must_not_be_called():
             raise AssertionError("MarkItDown converter must not be constructed")
 
-        result = extract_text(
-            filename="thesis.docx",
-            content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            data=docx_bytes,
-            markitdown_converter_factory=_factory_must_not_be_called,
-        )
+        with patch(
+            "app.extraction._convert_docx_to_pdf",
+            return_value=build_minimal_pdf("Legacy extractor text."),
+        ):
+            result = extract_text(
+                filename="thesis.docx",
+                content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                data=docx_bytes,
+                markitdown_converter_factory=_factory_must_not_be_called,
+            )
 
         body = result.to_dict()
         self.assertIn("Legacy extractor text.", body["full_text"])
@@ -269,12 +419,16 @@ class MarkItDownLlmTextTest(unittest.TestCase):
                 self.source = source
                 return SimpleNamespace(text_content="# Markdown LLM text")
 
-        result = extract_text(
-            filename="thesis.docx",
-            content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            data=docx_bytes,
-            markitdown_converter_factory=FakeConverter,
-        )
+        with patch(
+            "app.extraction._convert_docx_to_pdf",
+            return_value=build_minimal_pdf("Legacy page text."),
+        ):
+            result = extract_text(
+                filename="thesis.docx",
+                content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                data=docx_bytes,
+                markitdown_converter_factory=FakeConverter,
+            )
 
         body = result.to_dict()
         self.assertEqual(body["llm_text"], "# Markdown LLM text")
@@ -290,12 +444,16 @@ class MarkItDownLlmTextTest(unittest.TestCase):
         def _unavailable_factory():
             raise ImportError("markitdown is not installed")
 
-        result = extract_text(
-            filename="thesis.docx",
-            content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            data=docx_bytes,
-            markitdown_converter_factory=_unavailable_factory,
-        )
+        with patch(
+            "app.extraction._convert_docx_to_pdf",
+            return_value=build_minimal_pdf("Legacy fallback text."),
+        ):
+            result = extract_text(
+                filename="thesis.docx",
+                content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                data=docx_bytes,
+                markitdown_converter_factory=_unavailable_factory,
+            )
 
         body = result.to_dict()
         self.assertIn("Legacy fallback text.", body["full_text"])
@@ -310,13 +468,17 @@ class MarkItDownLlmTextTest(unittest.TestCase):
                 Event().wait(0.2)
                 return SimpleNamespace(text_content="too late")
 
-        result = extract_text(
-            filename="thesis.docx",
-            content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            data=docx_bytes,
-            markitdown_converter_factory=SlowConverter,
-            markitdown_timeout_seconds=0.01,
-        )
+        with patch(
+            "app.extraction._convert_docx_to_pdf",
+            return_value=build_minimal_pdf("Legacy timeout text."),
+        ):
+            result = extract_text(
+                filename="thesis.docx",
+                content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                data=docx_bytes,
+                markitdown_converter_factory=SlowConverter,
+                markitdown_timeout_seconds=0.01,
+            )
 
         body = result.to_dict()
         self.assertIn("Legacy timeout text.", body["full_text"])

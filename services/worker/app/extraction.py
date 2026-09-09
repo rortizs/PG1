@@ -1,8 +1,9 @@
 """PDF/DOCX text extraction + heading-heuristic section detection.
 
-Deliberately minimal and honest: `pypdf` for PDF page text, `python-docx` for
-DOCX paragraph text. No OCR, no layout analysis — if a page/paragraph has no
-extractable text layer, it is reported as empty rather than guessed at.
+Deliberately minimal and honest: `pypdf` for PDF page text, and DOCX only after
+headless LibreOffice has rendered it to PDF. No OCR, no layout analysis — if a
+page has no extractable text layer, it is reported as empty rather than guessed
+at.
 
 Section-boundary detection (`detect_sections`) runs over already-extracted
 per-page PDF text using a small ordered table of heading-heuristic regex
@@ -15,6 +16,8 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
+import subprocess
 import tempfile
 import threading
 import unicodedata
@@ -25,8 +28,6 @@ from pathlib import Path
 from queue import Empty, Queue
 from typing import Protocol
 
-from docx import Document
-from docx.opc.exceptions import PackageNotFoundError
 from pypdf import PdfReader
 
 PDF_CONTENT_TYPES = {"application/pdf"}
@@ -40,6 +41,18 @@ RESOLVED_DOCX_CONTENT_TYPE = (
 MARKITDOWN_LLM_TEXT_FLAG = "PG1_ENABLE_MARKITDOWN_LLM_TEXT"
 MARKITDOWN_TIMEOUT_SECONDS_FLAG = "PG1_MARKITDOWN_TIMEOUT_SECONDS"
 DEFAULT_MARKITDOWN_TIMEOUT_SECONDS = 10.0
+SOFFICE_BINARY_ENV = "SOFFICE_BINARY"
+DOCX_CONVERSION_TIMEOUT_SECONDS = 120.0
+
+__all__ = [
+    "DOCX_CONTENT_TYPES",
+    "RESOLVED_DOCX_CONTENT_TYPE",
+    "DocxConversionError",
+    "ExtractedPage",
+    "_convert_docx_to_pdf",
+    "detect_sections",
+    "extract_text",
+]
 
 
 class ExtractionError(RuntimeError):
@@ -52,6 +65,10 @@ class UnsupportedContentTypeError(ExtractionError):
 
 class CorruptFileError(ExtractionError):
     """Raised when the uploaded file cannot be parsed as its declared type."""
+
+
+class DocxConversionError(ExtractionError):
+    """Raised when LibreOffice cannot render DOCX bytes into a PDF."""
 
 
 @dataclass(frozen=True)
@@ -363,24 +380,70 @@ def _extract_pdf(data: bytes) -> tuple[list[ExtractedPage], str, list[ExtractedS
     return pages, full_text, sections
 
 
-def _extract_docx(data: bytes) -> tuple[list[ExtractedPage], str]:
-    try:
-        document = Document(BytesIO(data))
-        paragraphs = [p.text for p in document.paragraphs if p.text.strip()]
-    except PackageNotFoundError as exc:
-        raise CorruptFileError(f"Unable to parse DOCX: {exc}") from exc
-    except Exception as exc:
-        raise CorruptFileError(f"Unable to parse DOCX: {exc}") from exc
-    full_text = "\n".join(paragraphs)
-    # DOCX has no fixed page concept without rendering (out of scope for this
-    # pass — real page-accurate DOCX extraction via LibreOffice conversion is
-    # PR3) — reported as a single provenance-free unit, zero sections.
-    pages = [ExtractedPage(page_number=None, section_title=None, text=full_text)]
-    return pages, full_text
+def _decode_process_output(value: bytes | str | None) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", "replace")
+    return value
+
+
+def _convert_docx_to_pdf(data: bytes) -> bytes:
+    binary_name = os.environ.get(SOFFICE_BINARY_ENV, "soffice")
+    binary = shutil.which(binary_name)
+    if not binary:
+        raise DocxConversionError(
+            "LibreOffice headless binary not found (set SOFFICE_BINARY or install "
+            "libreoffice). DOCX cannot be converted to PDF because page-accurate "
+            "provenance is required; refusing to degrade to section-only extraction."
+        )
+
+    with tempfile.TemporaryDirectory() as directory:
+        tmp = Path(directory)
+        source = tmp / "input.docx"
+        output = tmp / "input.pdf"
+        profile = tmp / "lo-profile"
+        source.write_bytes(data)
+
+        try:
+            completed = subprocess.run(
+                [
+                    binary,
+                    f"-env:UserInstallation={profile.as_uri()}",
+                    "--headless",
+                    "--norestore",
+                    "--convert-to",
+                    "pdf",
+                    "--outdir",
+                    str(tmp),
+                    str(source),
+                ],
+                capture_output=True,
+                timeout=DOCX_CONVERSION_TIMEOUT_SECONDS,
+                check=False,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise DocxConversionError(
+                "LibreOffice conversion timed out after "
+                f"{DOCX_CONVERSION_TIMEOUT_SECONDS:g}s"
+            ) from exc
+
+        if completed.returncode != 0 or not output.exists():
+            stderr = _decode_process_output(completed.stderr).strip()
+            detail = stderr[:500] if stderr else "no PDF output produced"
+            raise DocxConversionError(
+                f"LibreOffice conversion failed (exit {completed.returncode}): {detail}"
+            )
+        return output.read_bytes()
+
+
+def _extract_docx(data: bytes) -> tuple[list[ExtractedPage], str, list[ExtractedSection]]:
+    return _extract_pdf(_convert_docx_to_pdf(data))
 
 
 class MarkItDownConverter(Protocol):
-    def convert(self, source: str) -> object: ...
+    def convert(self, source: str) -> object:
+        pass
 
 
 MarkItDownConverterFactory = Callable[[], MarkItDownConverter]
@@ -489,9 +552,8 @@ def extract_text(
         pages, full_text, sections = _extract_pdf(data)
         resolved_type = RESOLVED_PDF_CONTENT_TYPE
     elif normalized_type in DOCX_CONTENT_TYPES or lowered_name.endswith(".docx"):
-        pages, full_text = _extract_docx(data)
+        pages, full_text, sections = _extract_docx(data)
         resolved_type = RESOLVED_DOCX_CONTENT_TYPE
-        sections = []
     else:
         raise UnsupportedContentTypeError(
             f"Unsupported content type '{content_type}' for file '{filename}'"

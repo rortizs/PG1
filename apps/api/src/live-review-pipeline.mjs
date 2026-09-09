@@ -1,5 +1,6 @@
 import { createFilesystemObjectStorage } from "./storage/object-storage.mjs";
 import { createReviewRepository } from "./db/review-repository.mjs";
+import { withClient } from "./db/migrate.mjs";
 import {
 	createReviewPipeline,
 	defaultRunCagReview,
@@ -39,10 +40,9 @@ const documentStorage = createFilesystemObjectStorage();
 
 // In-process registry: external thesis-document id (e.g. `doc_1a2b3c...`)
 // -> the bytes/metadata needed to (re)drive extraction, plus the internal
-// Postgres `thesis_document.id` once persisted. A document only ever enters
-// this registry after a REAL, successful DB insert — see
-// `registerUploadedDocument` below — which is exactly what makes an id
-// "known" for live-pipeline routing purposes.
+// Postgres `thesis_document.id` once persisted. Warm uploads enter through
+// `registerUploadedDocument`; cold process lookups rehydrate the same shape
+// from durable `thesis_document` rows before live-pipeline routing.
 const uploadedDocuments = new Map();
 
 let cachedRepository = null;
@@ -101,33 +101,44 @@ function getProviderRepository() {
  * turns into `review_run.status: "failed"` + `error_summary` — no new error
  * handling needed here, matching the existing failure pattern exactly.
  */
-async function runCagReviewWithActiveProvider({ thesisText }) {
+async function runCagReviewWithActiveProvider({ thesisText, pages, sections }) {
 	const providerRepository = getProviderRepository();
 	if (!providerRepository) {
 		throw new Error(
-			"no active LLM provider configured: DATABASE_URL is not set",
+			"no active judgment provider configured: DATABASE_URL is not set",
 		);
 	}
-	const active = await providerRepository.getActiveProvider();
-	if (!active) {
-		throw new Error("no active LLM provider configured");
+	const judgment = await providerRepository.getActiveProvider("judgment");
+	if (!judgment) {
+		throw new Error("no active judgment provider configured");
 	}
+	const triage = await providerRepository.getActiveProvider("triage");
+	const triageProvider = triage
+		? {
+				provider_name: triage.providerName,
+				api_key: triage.apiKey,
+				model_id: triage.modelId,
+			}
+		: null;
 	const result = await defaultRunCagReview({
 		thesisText,
-		providerName: active.providerName,
-		apiKey: active.apiKey,
-		modelId: active.modelId,
+		pages,
+		sections,
+		judgmentProvider: {
+			provider_name: judgment.providerName,
+			api_key: judgment.apiKey,
+			model_id: judgment.modelId,
+		},
+		triageProvider,
 	});
-	// llm-provider-admin Work Unit 8: the worker's response never echoes the
-	// provider it used (see services/worker/app/main.py's response shape) —
-	// this is the one place that genuinely knows which provider/model just
-	// handled the call, so it's the source of truth for provenance, carried
-	// alongside the worker's own result for `review-orchestrator.mjs` to
-	// persist on completion.
+	// The worker's response never echoes which DB-resolved providers it used;
+	// this composition root is the source of truth for role provenance.
 	return {
 		...result,
-		providerName: active.providerName,
-		modelId: active.modelId,
+		providerName: judgment.providerName,
+		modelId: judgment.modelId,
+		triageProviderName: triage?.providerName ?? null,
+		triageModelId: triage?.modelId ?? null,
 	};
 }
 
@@ -160,8 +171,42 @@ async function retrieveNormativeContext(repository, { thesisText }) {
 	});
 }
 
+async function findDurableUploadedDocument(documentId) {
+	const match = String(documentId ?? "").match(/^doc_([a-f0-9]{16})$/);
+	const connectionString = databaseUrl();
+	if (!match || !connectionString) return null;
+	const sha256Prefix = match[1];
+	return withClient({ connectionString }, async (pgClient) => {
+		const result = await pgClient.query(
+			`SELECT id, sha256, storage_key, content_type, original_filename
+			 FROM thesis_document
+			 WHERE lower(left(coalesce(sha256, ''), 16)) = $1
+			 ORDER BY id DESC
+			 LIMIT 1`,
+			[sha256Prefix],
+		);
+		if (result.rows.length === 0) return null;
+		const row = result.rows[0];
+		return {
+			dbId: Number(row.id),
+			sha256: row.sha256,
+			storageKey: row.storage_key,
+			contentType: row.content_type,
+			filename: row.original_filename,
+		};
+	});
+}
+
+async function resolveUploadedDocument(documentId) {
+	const memoryEntry = uploadedDocuments.get(documentId);
+	if (memoryEntry) return memoryEntry;
+	const durableEntry = await findDurableUploadedDocument(documentId);
+	if (durableEntry) uploadedDocuments.set(documentId, durableEntry);
+	return durableEntry;
+}
+
 async function extractViaWorker({ thesisDocumentId }) {
-	const entry = uploadedDocuments.get(thesisDocumentId);
+	const entry = await resolveUploadedDocument(thesisDocumentId);
 	if (!entry) {
 		throw new Error(
 			`No stored bytes found for thesis document: ${thesisDocumentId}`,
@@ -173,8 +218,7 @@ async function extractViaWorker({ thesisDocumentId }) {
 	formData.append(
 		"file",
 		new Blob([stored.content], {
-			type:
-				stored.contentType || entry.contentType || "application/octet-stream",
+			type: stored.contentType || entry.contentType || "application/octet-stream",
 		}),
 		entry.filename || "upload",
 	);
@@ -205,11 +249,9 @@ export function getLivePipeline() {
 		const pipeline = createReviewPipeline({
 			repository,
 			resolveThesisDocumentDbId: async (documentId) => {
-				const entry = uploadedDocuments.get(documentId);
+				const entry = await resolveUploadedDocument(documentId);
 				if (!entry?.dbId) {
-					throw new Error(
-						`Unknown or unpersisted thesis document: ${documentId}`,
-					);
+					throw new Error(`Unknown or unpersisted thesis document: ${documentId}`);
 				}
 				return entry.dbId;
 			},
@@ -218,8 +260,7 @@ export function getLivePipeline() {
 			// provider fresh on every trigger instead of always calling Claude
 			// via the default env-var-only path.
 			runCagReview: runCagReviewWithActiveProvider,
-			resolveNormativeSourceId: (ref) =>
-				resolveNormativeSourceId(repository, ref),
+			resolveNormativeSourceId: (ref) => resolveNormativeSourceId(repository, ref),
 			retrieveNormativeContext: (args) =>
 				retrieveNormativeContext(repository, args),
 		});
@@ -232,8 +273,8 @@ export function getLivePipeline() {
 	return cachedPipeline;
 }
 
-export function isKnownUploadedDocument(documentId) {
-	return uploadedDocuments.has(documentId);
+export async function isKnownUploadedDocument(documentId) {
+	return (await resolveUploadedDocument(documentId)) !== null;
 }
 
 export function getDocumentStorage() {
@@ -249,9 +290,15 @@ export function getDocumentStorage() {
  * behaving exactly as before this pass, and every review-run trigger for
  * that document falls back to the existing in-memory stub lifecycle.
  *
- * `uploaderUserId` defaults to `0` (no auth in this MVP; the schema's
- * `uploaded_by_user_id` column is `NOT NULL`) — `0` is a documented
- * placeholder for "no authenticated uploader", not a real user id.
+ * reviewer-authentication design.md D8 (Unit 4): `uploaderUserId` is now
+ * REQUIRED — the caller (`api-contract.mjs`'s upload handler) always has a
+ * real session-derived reviewer id by the time it calls this function,
+ * since the route sits behind the deny-by-default session gate. A null/
+ * undefined `uploaderUserId` reaching this point throws loudly instead of
+ * silently falling back to `0` (the old placeholder for "no authenticated
+ * uploader"); this throw path should only ever fire on an upstream
+ * regression, which is exactly the point — a loud signal instead of a
+ * silent bad default.
  */
 // Postgres connection-level error codes: these mean the database is
 // genuinely unreachable, matching spec's "Postgres unreachable -> 5xx"
@@ -283,6 +330,12 @@ export async function registerUploadedDocument({
 	uploaderUserId,
 	metadata = {},
 }) {
+	if (uploaderUserId === null || uploaderUserId === undefined) {
+		throw new Error(
+			"registerUploadedDocument: uploaderUserId is required — a null/undefined uploaderUserId must never silently default to 0 (reviewer-authentication design.md D8).",
+		);
+	}
+
 	const repository = getRepository();
 	if (!repository) return { persisted: false };
 
@@ -293,7 +346,7 @@ export async function registerUploadedDocument({
 			fileSizeBytes,
 			storageKey,
 			sha256,
-			uploadedByUserId: uploaderUserId ?? 0,
+			uploadedByUserId: uploaderUserId,
 			metadata,
 		});
 		uploadedDocuments.set(documentId, {

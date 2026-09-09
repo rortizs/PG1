@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  test:
+    name: Test (api, web, worker)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: pg1
+          POSTGRES_PASSWORD: pg1
+          POSTGRES_DB: pg1
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U pg1 -d pg1"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgres://pg1:pg1@localhost:5432/pg1
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Node dependencies
+        run: pnpm install --frozen-lockfile
+
+      # pyproject.toml declares no [build-system], so the worker package is not
+      # pip-installable; its tests run from services/worker with PYTHONPATH=.
+      - name: Install worker Python dependencies
+        working-directory: services/worker
+        run: |
+          python -m pip install --upgrade pip
+          python -c "import tomllib; print('\n'.join(tomllib.load(open('pyproject.toml','rb'))['project']['dependencies']))" > "$RUNNER_TEMP/worker-requirements.txt"
+          python -m pip install -r "$RUNNER_TEMP/worker-requirements.txt"
+
+      # Also acts as the database gate: the API integration tests self-skip when
+      # Postgres is unreachable, so this hard-failing step is what keeps an
+      # unavailable database from producing a green run.
+      - name: Apply database migrations
+        run: node apps/api/src/db/migrate.mjs up
+
+      - name: Test API
+        run: pnpm --filter @pg1/api test
+
+      - name: Test web
+        run: pnpm --filter @pg1/web test
+
+      - name: Test worker
+        run: pnpm --filter @pg1/worker-smoke test

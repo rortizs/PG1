@@ -60,6 +60,7 @@ function createFakeReviewerRepository({ reviewers = [] } = {}) {
 				revokedAt: row.revokedAt,
 				email: reviewer?.email,
 				displayName: reviewer?.displayName,
+				isActive: reviewer?.isActive,
 			};
 		},
 		_setSession(tokenHash, session) {
@@ -69,7 +70,7 @@ function createFakeReviewerRepository({ reviewers = [] } = {}) {
 }
 
 function maskVolatileFields(body) {
-	const { request_id, timestamp, ...rest } = body;
+	const { request_id: _requestId, timestamp: _timestamp, ...rest } = body;
 	return rest;
 }
 

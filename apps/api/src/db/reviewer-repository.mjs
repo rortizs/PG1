@@ -133,7 +133,7 @@ export function createReviewerRepository({ client, connectionString } = {}) {
 			return run(async (pgClient) => {
 				const result = await pgClient.query(
 					`SELECT s.id AS session_id, s.reviewer_id, s.expires_at, s.revoked_at,
-					        r.email, r.display_name
+					        r.email, r.display_name, r.is_active AS reviewer_is_active
 					 FROM reviewer_session s
 					 JOIN reviewer r ON r.id = s.reviewer_id
 					 WHERE s.token_hash = $1`,
@@ -148,6 +148,7 @@ export function createReviewerRepository({ client, connectionString } = {}) {
 					revokedAt: row.revoked_at,
 					email: row.email,
 					displayName: row.display_name,
+					isActive: row.reviewer_is_active,
 				};
 			});
 		},

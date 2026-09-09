@@ -1,5 +1,6 @@
 import { createFilesystemObjectStorage } from "./storage/object-storage.mjs";
 import { createReviewRepository } from "./db/review-repository.mjs";
+import { withClient } from "./db/migrate.mjs";
 import {
 	createReviewPipeline,
 	defaultRunCagReview,
@@ -39,10 +40,9 @@ const documentStorage = createFilesystemObjectStorage();
 
 // In-process registry: external thesis-document id (e.g. `doc_1a2b3c...`)
 // -> the bytes/metadata needed to (re)drive extraction, plus the internal
-// Postgres `thesis_document.id` once persisted. A document only ever enters
-// this registry after a REAL, successful DB insert — see
-// `registerUploadedDocument` below — which is exactly what makes an id
-// "known" for live-pipeline routing purposes.
+// Postgres `thesis_document.id` once persisted. Warm uploads enter through
+// `registerUploadedDocument`; cold process lookups rehydrate the same shape
+// from durable `thesis_document` rows before live-pipeline routing.
 const uploadedDocuments = new Map();
 
 let cachedRepository = null;
@@ -171,8 +171,42 @@ async function retrieveNormativeContext(repository, { thesisText }) {
 	});
 }
 
+async function findDurableUploadedDocument(documentId) {
+	const match = String(documentId ?? "").match(/^doc_([a-f0-9]{16})$/);
+	const connectionString = databaseUrl();
+	if (!match || !connectionString) return null;
+	const sha256Prefix = match[1];
+	return withClient({ connectionString }, async (pgClient) => {
+		const result = await pgClient.query(
+			`SELECT id, sha256, storage_key, content_type, original_filename
+			 FROM thesis_document
+			 WHERE lower(left(coalesce(sha256, ''), 16)) = $1
+			 ORDER BY id DESC
+			 LIMIT 1`,
+			[sha256Prefix],
+		);
+		if (result.rows.length === 0) return null;
+		const row = result.rows[0];
+		return {
+			dbId: Number(row.id),
+			sha256: row.sha256,
+			storageKey: row.storage_key,
+			contentType: row.content_type,
+			filename: row.original_filename,
+		};
+	});
+}
+
+async function resolveUploadedDocument(documentId) {
+	const memoryEntry = uploadedDocuments.get(documentId);
+	if (memoryEntry) return memoryEntry;
+	const durableEntry = await findDurableUploadedDocument(documentId);
+	if (durableEntry) uploadedDocuments.set(documentId, durableEntry);
+	return durableEntry;
+}
+
 async function extractViaWorker({ thesisDocumentId }) {
-	const entry = uploadedDocuments.get(thesisDocumentId);
+	const entry = await resolveUploadedDocument(thesisDocumentId);
 	if (!entry) {
 		throw new Error(
 			`No stored bytes found for thesis document: ${thesisDocumentId}`,
@@ -215,7 +249,7 @@ export function getLivePipeline() {
 		const pipeline = createReviewPipeline({
 			repository,
 			resolveThesisDocumentDbId: async (documentId) => {
-				const entry = uploadedDocuments.get(documentId);
+				const entry = await resolveUploadedDocument(documentId);
 				if (!entry?.dbId) {
 					throw new Error(`Unknown or unpersisted thesis document: ${documentId}`);
 				}
@@ -239,8 +273,8 @@ export function getLivePipeline() {
 	return cachedPipeline;
 }
 
-export function isKnownUploadedDocument(documentId) {
-	return uploadedDocuments.has(documentId);
+export async function isKnownUploadedDocument(documentId) {
+	return (await resolveUploadedDocument(documentId)) !== null;
 }
 
 export function getDocumentStorage() {

@@ -20,7 +20,7 @@ import type { HttpRequest, HttpResponse } from '../http-types.js';
 interface UploadedMulterFile {
   originalname: string;
   mimetype: string;
-  buffer: Buffer;
+  buffer: Uint8Array;
   size: number;
 }
 

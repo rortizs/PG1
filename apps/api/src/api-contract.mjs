@@ -258,7 +258,7 @@ export async function handleApiRequest({
 		const documentId = decodeURIComponent(reviewRunCreate[1]);
 		const pipelineVersion = body.pipelineVersion ?? "pipeline-v1";
 		try {
-			const livePipeline = isKnownUploadedDocument(documentId)
+			const livePipeline = (await isKnownUploadedDocument(documentId))
 				? getLivePipeline()
 				: null;
 			const lifecycle = livePipeline
@@ -314,29 +314,29 @@ export async function handleApiRequest({
 }
 
 /**
- * Builds a `^...$` regex from a `ROUTES`-style path template
- * (`/api/v1/thesis-documents/{document_id}/review-runs`), treating every
- * `{param}` segment as a single non-`/` path segment — mirrors the per-branch
- * regexes already used below (e.g. the priority/approval matchers), kept in
- * one place so `routeExists()` cannot silently drift from `ROUTES` itself.
+ * Matches a `ROUTES`-style path template
+ * (`/api/v1/thesis-documents/{document_id}/review-runs`) without compiling a
+ * request-time regex. Dynamic `{param}` segments match exactly one non-empty
+ * path segment, which mirrors the route shape used by the per-branch matchers
+ * below while avoiding a non-literal RegExp surface.
  */
-function pathTemplateToRegex(template) {
-	const pattern = template
-		.split(/(\{[^}]+\})/)
-		.map((segment) =>
-			segment.startsWith("{")
-				? "[^/]+"
-				: segment.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
-		)
-		.join("");
-	return new RegExp(`^${pattern}$`);
+function pathMatchesTemplate(template, path) {
+	const templateSegments = template.split("/");
+	const pathSegments = String(path ?? "").split("/");
+	if (templateSegments.length !== pathSegments.length) return false;
+	return templateSegments.every((segment, index) => {
+		if (segment.startsWith("{") && segment.endsWith("}")) {
+			return pathSegments[index].length > 0;
+		}
+		return segment === pathSegments[index];
+	});
 }
 
 /** Whether `(method, path)` matches any entry in `ROUTES` (auth routes included). */
 function routeExists(method, path) {
 	return ROUTES.some(
 		([routeMethod, routeTemplate]) =>
-			routeMethod === method && pathTemplateToRegex(routeTemplate).test(path),
+			routeMethod === method && pathMatchesTemplate(routeTemplate, path),
 	);
 }
 
@@ -436,9 +436,10 @@ async function withRealSummary(run, livePipeline, runId) {
 		try {
 			const reviewRunDbId = livePipeline.getReviewRunDbId(runId);
 			if (reviewRunDbId) {
-				findings = (
-					await livePipeline.repository.listFindingsForReviewRun(reviewRunDbId)
-				).length;
+				const persistedFindings = await livePipeline.repository.listFindingsForReviewRun(
+					reviewRunDbId,
+				);
+				findings = persistedFindings.length;
 				// llm-provider-admin Work Unit 8: which provider/model handled
 				// this run. A run completed before this change (or whose
 				// provenance was never recorded for any other reason) has NULL

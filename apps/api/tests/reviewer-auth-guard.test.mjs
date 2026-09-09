@@ -201,3 +201,34 @@ test("handleApiRequest: a valid unexpired session token reaches the route's real
 		await client.end();
 	}
 });
+
+test("handleApiRequest: a deactivated reviewer session 401s protected routes immediately", async (t) => {
+	const client = await connectOrSkip(t);
+	if (!client) return;
+	try {
+		await resetSchemaToHead(client);
+		process.env.DATABASE_URL = databaseUrl;
+
+		const { handleApiRequest } = await import("../src/api-contract.mjs");
+		const { createReviewerRepository } = await import(
+			"../src/db/reviewer-repository.mjs"
+		);
+		const { createAuthenticatedSession } = await import(
+			"./support/reviewer-session-fixture.mjs"
+		);
+		const session = await createAuthenticatedSession({ connectionString: databaseUrl });
+		const repository = createReviewerRepository({ connectionString: databaseUrl });
+		await repository.setActive(session.reviewerId, false);
+
+		const response = await handleApiRequest({
+			method: "GET",
+			path: "/api/v1/thesis-documents",
+			headers: session.headers,
+		});
+
+		assert.equal(response.status, 401);
+		assert.equal(response.body.error, "unauthorized");
+	} finally {
+		await client.end();
+	}
+});

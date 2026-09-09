@@ -26,7 +26,6 @@ export const MIN_PASSWORD_LENGTH = 12; // OWASP: length only, no composition rul
 export const MAX_PASSWORD_LENGTH = 128;
 
 const EMAIL_PATTERN = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
-const TOKEN_HASH_PATTERN = /^[a-f0-9]{64}$/;
 
 // design.md D5 (enumeration closure): a process-local, bounded, LRU-evicted
 // bucket tracking throttle state for emails that do NOT resolve to a real
@@ -235,6 +234,7 @@ export async function checkSession(headers, { repository, now = new Date() }) {
 	if (!row) return { session: null, error: sessionRequiredError() };
 
 	if (row.revokedAt) return { session: null, error: sessionRequiredError() };
+	if (row.isActive !== true) return { session: null, error: sessionRequiredError() };
 
 	const expiresAt = new Date(row.expiresAt);
 	if (expiresAt.getTime() <= now.getTime()) {

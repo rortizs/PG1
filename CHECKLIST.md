@@ -2,15 +2,25 @@
 
 This checklist is the root-level operational view. It replaces the stale planning list in `HISTORY.md#Próximos Pasos` as the day-to-day source for what is done, what is partial, and what comes next.
 
-Last updated: 2026-09-04
+Last updated: 2026-09-13
 
 ## Current next action
 
-- [ ] Verify/archive `precise-thesis-review-pipeline` after Work Unit 10.
-  - WU10 implementation and worker verification are complete.
-  - Manual DeepSeek triage smoke with a real `DEEPSEEK_API_KEY` remains optional follow-up evidence.
+- [ ] Choose the next product/workflow slice for PG1.
+  - Option A: run an optional real DeepSeek triage smoke with an authorized `DEEPSEEK_API_KEY`.
+  - Option B: reconcile the legacy `mvp-academic-review-core` backlog before using it as the driving plan.
+  - Option C: start a new focused feature from the current product priorities.
 
 ## Recently completed
+
+- [x] Merge `precise-thesis-review-pipeline` into `main` through PR #139.
+  - Evidence: PR #139 merged cleanly after CI and diff checks; strict draft PR chain was closed after integration.
+- [x] Merge `apps/web/tsconfig.json` strict-JSON cleanup through PR #144.
+  - Evidence: PR #144 removed the two invalid JSON comments, passed GitHub CI, and local `python3 -m json.tool apps/web/tsconfig.json` / `git diff --check` checks.
+- [x] Clean obsolete PG1 worktrees and merged branches.
+  - Evidence: stale strict-chain worktree and stale gentle-ai candidate-view snapshot were removed; only the main worktree remains.
+- [x] Verify/archive `precise-thesis-review-pipeline` after Work Unit 10.
+  - Evidence: WU10 final verification and archive completed before PR #139 integration; manual DeepSeek triage smoke remains optional follow-up evidence, not an archive blocker.
 
 - [x] Complete `precise-thesis-review-pipeline` Work Unit 10: real `DeepSeekProvider` wired as `triage`.
   - Evidence: real `httpx` DeepSeek provider, factory wiring, optional triage fail-open behavior, credential non-leak tests, focused worker **37 tests OK**, full worker **124 tests OK**.
@@ -37,7 +47,7 @@ Last updated: 2026-09-04
 
 | Change | Status | Next |
 | --- | --- | --- |
-| `precise-thesis-review-pipeline` | Active; Work Units 1–10 complete | Verify/archive the completed change |
+| `precise-thesis-review-pipeline` | Archived and merged into `main` | Optional real DeepSeek smoke only if credentials are authorized |
 | `mvp-academic-review-core` | Active legacy backlog; Work Units 1–5 complete, 6–16 pending | Reconcile overlap before using it as the driving backlog |
 
 ## Root legacy checklist reconciliation

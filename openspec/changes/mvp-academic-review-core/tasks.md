@@ -4,21 +4,21 @@
 
 This change predates several completed PG1 changes. Do **not** apply the original pending Work Units 6–12 as written; much of that work was delivered by later, narrower OpenSpec changes and merged into `main`.
 
-The current executable backlog for this change starts with **Work Unit R1 — Markdown report MVP** below.
+The current executable backlog for this change starts with **Work Unit R1a — Markdown report contract core** below. A prior attempt to implement all Markdown reporting in one R1 slice exceeded the 400-line review budget; the report MVP is now split into smaller slices.
 
 ## Review Workload Forecast
 
 | Field | Value |
 |-------|-------|
-| Current next slice | Markdown report MVP |
-| Estimated changed lines | 250–450 across API report generation, repository/storage seams, tests, and UI download contract adjustments if needed |
-| 400-line budget risk | Medium |
-| Chained PRs recommended | No for R1 if kept narrow; split if generated artifacts or UI expansion push above 400 changed lines |
-| Suggested split if needed | PR 1 report-generation API/storage contract → PR 2 UI polish/download affordance |
+| Current next slice | R1a Markdown report contract core |
+| Estimated changed lines | R1a: 150–250; R1b: 150–250; R1c: 150–250; R2/R3 only if needed |
+| 400-line budget risk | Low per slice if boundaries are respected |
+| Chained PRs recommended | No for R1a alone; split remains mandatory if a slice approaches 400 changed lines |
+| Suggested split | R1a view-model/renderer tests → R1b repository/artifact persistence → R1c HTTP route integration |
 | Delivery strategy | ask-on-risk |
-| Chain strategy | N/A unless R1 exceeds the review budget |
+| Chain strategy | N/A unless an individual slice exceeds the review budget |
 
-Decision needed before apply: No, if R1 remains Markdown-only and uses persisted findings/evidence.
+Decision needed before apply: No, if the next apply implements **R1a only**.
 
 ## Scope Guard
 
@@ -52,25 +52,46 @@ Decision needed before apply: No, if R1 remains Markdown-only and uses persisted
 
 ## Current Work Units
 
-### R1. Markdown report MVP
+### R1a. Markdown report contract core
 
-- [ ] RED: Add API tests for Markdown report generation from persisted review-run data:
+This slice is pure report shaping. It MUST NOT touch the database repository, HTTP route handlers, storage adapter, or UI.
+
+- [ ] RED: Add focused tests for a reusable report view-model and Markdown renderer using in-memory fixture data:
   - completed run with findings;
   - completed run with no valid findings;
   - pending/unavailable report state;
-  - stale or wrong-run artifact rejection;
   - partial report labeling for failed/cancelled runs with valid intermediate findings.
-- [ ] GREEN: Implement Markdown report generation using only persisted document/run/finding/evidence/provenance data.
-- [ ] GREEN: Persist immutable Markdown report artifacts through the existing storage/report-artifact seam.
-- [ ] TRIANGULATE: Ensure empty reports state that no valid findings were produced and never invent observations.
-- [ ] TRIANGULATE: Ensure report content includes document identity, run identity, finding type, evidence text, page/section or uncertainty, severity/confidence, normative provenance when present, and provider/model provenance when available.
-- [ ] REFACTOR: Share a report view-model builder so future DOCX/XLSX formats can reuse the same evidence contract without duplicating formatting logic.
-- [ ] Verify: run focused API report tests plus the relevant full API test command; run web tests only if UI download behavior changes.
-- [ ] Rollback: disable Markdown artifact generation without deleting persisted findings or review-run data.
+- [ ] GREEN: Implement a small report module under `apps/api/src/report-artifacts/` that builds a report view-model from provided document/run/finding/evidence records.
+- [ ] GREEN: Render Markdown that includes document identity, run identity, finding type, evidence text, page/section or uncertainty, severity/confidence, normative provenance when present, and provider/model provenance when available.
+- [ ] TRIANGULATE: Empty reports state that no valid findings were produced and never invent observations.
+- [ ] REFACTOR: Keep the view-model independent from persistence so future DOCX/XLSX can reuse it.
+- [ ] Verify: focused report module tests and `git diff --check`.
+- [ ] Rollback: delete the report module and focused tests only.
+
+### R1b. Markdown report persistence seam
+
+Run this only after R1a is complete.
+
+- [ ] RED: Add repository/storage tests for report source reads, same-run artifact lookup, wrong-run artifact rejection, and immutable Markdown artifact insertion.
+- [ ] GREEN: Add repository methods that read persisted document/run/finding/evidence/provenance data for a review run.
+- [ ] GREEN: Add artifact persistence that stores Markdown metadata in `report_artifact` and writes content through the existing storage abstraction.
+- [ ] TRIANGULATE: Repeated generation for the same run/version reuses the existing artifact instead of overwriting it.
+- [ ] Verify: focused API repository/report tests plus relevant full API tests.
+- [ ] Rollback: remove repository/report persistence methods without deleting findings or review-run data.
+
+### R1c. Report artifacts HTTP integration
+
+Run this only after R1a and R1b are complete.
+
+- [ ] RED: Add API contract tests proving `GET /api/v1/review-runs/{run_id}/report-artifacts` returns generated/persisted Markdown artifacts, pending state, and wrong-run protection.
+- [ ] GREEN: Wire the existing route in `apps/api/src/api-contract.mjs` to the persistent Markdown generator.
+- [ ] TRIANGULATE: Pending/non-terminal runs return an explicit pending/unavailable state and do not expose stale artifacts.
+- [ ] Verify: route-focused API tests plus the relevant full API command.
+- [ ] Rollback: restore the prior pending/static artifact route behavior while keeping R1a/R1b modules isolated.
 
 ### R2. Optional report download UI polish
 
-Run this only if R1 exposes a new artifact shape that the current UI cannot consume.
+Run this only if R1c exposes a new artifact shape that the current UI cannot consume.
 
 - [ ] RED: Add web helper tests for selecting and presenting Markdown report artifacts from the API response.
 - [ ] GREEN: Update the results/review-board UI to show a clear Markdown download or unavailable state.
@@ -80,7 +101,7 @@ Run this only if R1 exposes a new artifact shape that the current UI cannot cons
 
 ### R3. Final verification for reconciled MVP core
 
-Run only after R1 is complete and R2 is either complete or explicitly not needed.
+Run only after R1a/R1b/R1c are complete and R2 is either complete or explicitly not needed.
 
 - [ ] RED: Add or update an end-to-end contract test for upload → review run → persisted findings → Markdown report artifact.
 - [ ] GREEN: Wire any missing minimal path needed for that contract without expanding into DOCX/XLSX or agentic work.

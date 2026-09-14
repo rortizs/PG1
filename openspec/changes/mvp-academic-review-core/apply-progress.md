@@ -1,5 +1,17 @@
 # Apply Progress — MVP Academic Review Core
 
+## 2026-09-13 R1 Attempt Reverted and Split
+
+The first R1 Markdown report MVP implementation attempt was reverted before commit. It produced a large WIP (~1230 changed lines) and left the HTTP route integration incomplete, so it was not accepted as a completed work unit.
+
+R1 is now split into smaller slices:
+
+- R1a: Markdown report contract core (view-model + renderer only).
+- R1b: persisted source/artifact seam.
+- R1c: HTTP route integration.
+
+Next apply should implement R1a only.
+
 ## 2026-09-13 Reconciliation Update
 
 The original pending Work Units 6–12 were reconciled against the current `main` state after `precise-thesis-review-pipeline` was archived and merged. They should not be applied directly from the historical task list.

@@ -6,9 +6,10 @@ Last updated: 2026-09-13
 
 ## Current next action
 
-- [ ] Implement `mvp-academic-review-core` R1: Markdown report MVP.
+- [ ] Implement `mvp-academic-review-core` R1a: Markdown report contract core.
   - Reconciliation is complete: stale historical Work Units 6–12 were retired or deferred in `openspec/changes/mvp-academic-review-core/tasks.md`.
-  - Keep the next slice Markdown-only; DOCX/XLSX, agentic RAG, congruence validation, and source-admin routes remain later work.
+  - A prior all-in-one R1 attempt exceeded the 400-line budget; the report MVP is now split into R1a/R1b/R1c.
+  - Keep R1a pure: view-model + Markdown renderer + focused tests only. No DB repository, HTTP route, storage persistence, or UI changes.
   - Optional DeepSeek smoke with an authorized `DEEPSEEK_API_KEY` remains separate from this next slice.
 
 ## Recently completed
@@ -48,7 +49,7 @@ Last updated: 2026-09-13
 | Change | Status | Next |
 | --- | --- | --- |
 | `precise-thesis-review-pipeline` | Archived and merged into `main` | Optional real DeepSeek smoke only if credentials are authorized |
-| `mvp-academic-review-core` | Active reconciled backlog; historical Work Units 1–12 completed/superseded/deferred | Implement R1 Markdown report MVP |
+| `mvp-academic-review-core` | Active reconciled backlog; report MVP split into R1a/R1b/R1c | Implement R1a Markdown report contract core |
 
 ## Root legacy checklist reconciliation
 

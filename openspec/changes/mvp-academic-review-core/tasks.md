@@ -1,213 +1,105 @@
 # Implementation Tasks — MVP Academic Review Core
 
+## 2026-09-13 Reconciliation
+
+This change predates several completed PG1 changes. Do **not** apply the original pending Work Units 6–12 as written; much of that work was delivered by later, narrower OpenSpec changes and merged into `main`.
+
+The current executable backlog for this change starts with **Work Unit R1 — Markdown report MVP** below.
+
 ## Review Workload Forecast
 
 | Field | Value |
 |-------|-------|
-| Estimated changed lines | 2,500–4,500 across scaffold, API, worker, schema, tests, and reports |
-| 400-line budget risk | High |
-| Chained PRs recommended | Yes |
-| Suggested split | PR 1 scaffold/tests → PR 2 API+DB core → PR 3 upload/storage → PR 4 worker extraction → PR 5 evidence/rules → PR 6 controlled RAG → PR 7 reports → PR 8 agentic milestone scaffold |
-| Delivery strategy | auto-chain |
-| Chain strategy | stacked-to-main |
+| Current next slice | Markdown report MVP |
+| Estimated changed lines | 250–450 across API report generation, repository/storage seams, tests, and UI download contract adjustments if needed |
+| 400-line budget risk | Medium |
+| Chained PRs recommended | No for R1 if kept narrow; split if generated artifacts or UI expansion push above 400 changed lines |
+| Suggested split if needed | PR 1 report-generation API/storage contract → PR 2 UI polish/download affordance |
+| Delivery strategy | ask-on-risk |
+| Chain strategy | N/A unless R1 exceeds the review budget |
 
-Decision needed before apply: No
-Chained PRs recommended: Yes
-Chain strategy: stacked-to-main
-400-line budget risk: High
+Decision needed before apply: No, if R1 remains Markdown-only and uses persisted findings/evidence.
 
 ## Scope Guard
 
-- OneDrive, Google Drive, and cloud-drive sync are out of scope for this change.
-- MVP ingestion is one-to-one manual upload of PDF/DOCX thesis files only.
-- Strict TDD applies: each implementation slice starts with failing tests, then minimal implementation, triangulation, and refactor.
-- Markdown is the first report format; DOCX/XLSX remain separate follow-up slices unless explicitly pulled into scope.
+- Markdown is the only report format in the next slice.
+- DOCX and XLSX remain later slices.
+- Agentic RAG remains out of scope for this change until the report MVP is stable.
+- Do not re-implement extraction, page/section persistence, deterministic rules, provider admin, DeepSeek triage, or controlled RAG foundations from the historical task list.
+- Reports MUST be generated only from persisted review-run data: document identity, run identity, findings, evidence/provenance, and explicit partial/empty states.
+- Strict TDD applies: start with failing report-generation tests, then minimal implementation, triangulation, and refactor.
 
-## Work Units
+## Reconciliation Map
 
-### 1. Repo scaffolding and strict TDD commands
+| Historical unit | Current status | Evidence / disposition |
+| --- | --- | --- |
+| 1. Repo scaffolding and strict TDD commands | Completed | Recorded in `apply-progress.md`; current monorepo/test commands exist. |
+| 2. API contract and OpenAPI baseline | Completed | Recorded in `apply-progress.md`; current API route contracts exist. |
+| 3. PostgreSQL schema and migration baseline | Completed / evolved | Baseline exists and later migrations extended it. |
+| 4. Upload and object storage abstraction | Completed / evolved | Upload flow exists in current API and UI paths. |
+| 5. Review-run lifecycle and queue orchestration | Completed / evolved | Current review-run lifecycle and orchestration are implemented. |
+| 6. Worker parser pipeline contract | Superseded by later completed changes | `precise-thesis-review-pipeline` archive created `document-structure-extraction` with PDF/DOCX extraction behavior. |
+| 7. Page/section persistence integration | Superseded by later completed changes | Canonical `document-structure-extraction` includes structural persistence to `document_page` and `document_section`. |
+| 8. Evidence and finding contract validator | Partially superseded; no standalone slice now | Current CAG/repository paths reject ungrounded findings and persist evidence provenance. Revisit only if a future slice needs a dedicated shared validator. |
+| 9. Rule engine MVP — writing/style first | Superseded by later completed changes | Canonical `deterministic-writing-rules` covers deterministic writing/style rules. |
+| 10. Rule engine MVP — GT and APA frameworks | Superseded by later completed changes | Canonical `reglamento-structure-rules`, `apa6-citation-rules`, and `normative-source-governance` cover the implemented GT/APA scope. |
+| 11. Congruence validation framework | Future product slice | Still valuable, but not required before Markdown report MVP. Needs fresh proposal/spec before implementation. |
+| 12. Controlled RAG normative sources | Partially superseded; future source-admin slice remains possible | `reviewer-workflow-board` covers normative segments, embeddings, retrieval, and provenance; source-management routes are not the next slice. |
+| 13. Report generation MVP — Markdown | Current next slice | Implement now. |
+| 14. Report generation later slices — DOCX and XLSX | Future slice | Split after Markdown stabilizes. |
+| 15. Agentic RAG later milestone scaffold | Future slice | Defer until deterministic + report workflow is stable. |
+| 16. Final verification and documentation | Later close-out | Run after the chosen remaining slices are complete. |
 
-- [x] RED: Add placeholder failing smoke tests for intended packages:
-  - `apps/api/` NestJS API test target.
-  - `apps/web/` Angular admin test target.
-  - `services/worker/` FastAPI/Python test target.
-- [x] GREEN: Scaffold monorepo directories and package/tooling files with minimal passing smoke tests:
-  - `package.json`, `pnpm-workspace.yaml` or chosen package-manager workspace file.
-  - `apps/api/`, `apps/web/`, `services/worker/`, `infra/`, `docs/`.
-- [x] TRIANGULATE: Add root verification commands that run all component tests without relying on the current placeholder `pytest -q`.
-- [x] REFACTOR: Update `openspec/config.yaml` `sdd.test_runner.command` with real commands, e.g. `pnpm test && cd services/worker && pytest -q`.
-- [x] Verify: root test command passes locally; no production feature code beyond scaffolding.
-- [ ] Rollback: remove scaffold directories and restore `openspec/config.yaml` placeholder.
+## Current Work Units
 
-### 2. API contract and OpenAPI baseline
+### R1. Markdown report MVP
 
-- [x] RED: Write API contract tests for versioned resource routes and standard error shape:
-  - `POST /api/v1/thesis-documents`
-  - `GET /api/v1/thesis-documents`
-  - `POST /api/v1/thesis-documents/{document_id}/review-runs`
-  - `GET /api/v1/review-runs/{run_id}`
-  - `GET /api/v1/review-runs/{run_id}/findings`
-  - `GET /api/v1/review-runs/{run_id}/report-artifacts`
-- [x] GREEN: Implement minimal NestJS controllers/modules under `apps/api/src/` returning contract-valid stub responses and consistent `{ error, message, details, request_id, timestamp }` errors.
-- [x] TRIANGULATE: Add pagination/filter contract cases for findings list and document list.
-- [x] REFACTOR: Generate or document OpenAPI at `docs/api/openapi.yaml` or `apps/api/openapi.yaml`.
-- [x] Verify: API tests prove resource nouns, `/api/v1` versioning, bounded lists, and error format.
-- [ ] Rollback: remove API module and OpenAPI file without touching DB migrations.
+- [ ] RED: Add API tests for Markdown report generation from persisted review-run data:
+  - completed run with findings;
+  - completed run with no valid findings;
+  - pending/unavailable report state;
+  - stale or wrong-run artifact rejection;
+  - partial report labeling for failed/cancelled runs with valid intermediate findings.
+- [ ] GREEN: Implement Markdown report generation using only persisted document/run/finding/evidence/provenance data.
+- [ ] GREEN: Persist immutable Markdown report artifacts through the existing storage/report-artifact seam.
+- [ ] TRIANGULATE: Ensure empty reports state that no valid findings were produced and never invent observations.
+- [ ] TRIANGULATE: Ensure report content includes document identity, run identity, finding type, evidence text, page/section or uncertainty, severity/confidence, normative provenance when present, and provider/model provenance when available.
+- [ ] REFACTOR: Share a report view-model builder so future DOCX/XLSX formats can reuse the same evidence contract without duplicating formatting logic.
+- [ ] Verify: run focused API report tests plus the relevant full API test command; run web tests only if UI download behavior changes.
+- [ ] Rollback: disable Markdown artifact generation without deleting persisted findings or review-run data.
 
-### 3. PostgreSQL schema and migration baseline
+### R2. Optional report download UI polish
 
-- [x] RED: Add migration/schema tests for required constraints, FK indexes, and status checks using selected NestJS migration tool.
-- [x] GREEN: Create migrations under `apps/api/src/db/migrations/` for:
-  - `thesis_document`
-  - `review_run`
-  - `document_page`
-  - `document_section`
-  - `evidence_snippet`
-  - `finding`
-  - `finding_evidence`
-  - `report_artifact`
-  - `normative_source`
-  - `normative_segment`
-  - `embedding_record`
-  - `audit_event`
-- [x] TRIANGULATE: Add explicit FK indexes, `timestamptz`, `snake_case`, normalized relations, and `pgvector` extension setup.
-- [x] REFACTOR: Keep optional/semi-structured data in constrained `jsonb` metadata columns only.
-- [x] Verify: static migration tests cover up/down SQL structure, non-empty evidence, invalid status checks, and FK indexes; no live PostgreSQL connection was available/required for this slice.
-- [ ] Rollback: migration down restores prior empty DB state.
+Run this only if R1 exposes a new artifact shape that the current UI cannot consume.
 
-### 4. Upload and object storage abstraction
+- [ ] RED: Add web helper tests for selecting and presenting Markdown report artifacts from the API response.
+- [ ] GREEN: Update the results/review-board UI to show a clear Markdown download or unavailable state.
+- [ ] TRIANGULATE: Completed run with no artifact shows a pending/unavailable state, not a broken link.
+- [ ] Verify: `pnpm --filter @pg1/web test`.
+- [ ] Rollback: revert UI-only download affordance; API report artifacts remain available.
 
-- [x] RED: Add API tests for PDF/DOCX accepted, unsupported types rejected, exactly one file required, and no review run created on rejection.
-- [x] GREEN: Implement `apps/api/src/thesis-documents/` upload endpoint with local/S3-compatible storage interface in `apps/api/src/storage/`.
-- [x] TRIANGULATE: Persist `thesis_document` metadata: filename, content type, size, storage key, SHA-256, uploader, upload status.
-- [x] REFACTOR: Isolate storage adapter config so local dev and S3-compatible deployments share one interface.
-- [x] Verify: upload flow stores source artifact and creates DB record; unsupported files return `415`/`422` with standard error.
-- [ ] Rollback: delete uploaded test objects and records; storage adapter can be disabled independently.
+### R3. Final verification for reconciled MVP core
 
-### 5. Review-run lifecycle and BullMQ orchestration
+Run only after R1 is complete and R2 is either complete or explicitly not needed.
 
-- [x] RED: Add tests for review-run creation returning `202`, status transitions, cancellation, failure summary, and extraction job enqueue.
-- [x] GREEN: Implement `apps/api/src/review-runs/` service/controller and BullMQ queue wiring under `apps/api/src/jobs/`.
-- [x] TRIANGULATE: Add idempotency key format `review_run:{id}:{stage}:{pipeline_version}` and audit events for lifecycle changes.
-- [x] REFACTOR: Centralize allowed statuses: `queued`, `extracting`, `segmenting`, `validating`, `rag_reviewing`, `reporting`, `completed`, `failed`, `cancelled`.
-- [x] Verify: repeated job starts do not duplicate runs/jobs; failed jobs set `review_run.error_summary`.
-- [ ] Rollback: disable queue module while preserving uploaded documents.
-
-### 6. Worker parser pipeline contract
-
-- [ ] RED: Add Python tests in `services/worker/tests/` for worker request/response schemas, PDF/DOCX parser stubs, page provenance, and uncertainty flags.
-- [ ] GREEN: Implement FastAPI worker endpoints/internal handlers under `services/worker/app/` for extraction and segmentation contracts.
-- [ ] TRIANGULATE: Add parser adapters for concrete discovery targets:
-  - PDF text extraction library selection.
-  - DOCX extraction library selection.
-  - OCR fallback strategy and when to mark uncertainty.
-- [ ] REFACTOR: Keep blocking PDF/OCR work outside the FastAPI event loop via thread/process offload.
-- [ ] Verify: worker tests pass and sample extraction response includes pages, sections, offsets, confidence, and uncertainty metadata.
-- [ ] Rollback: API can keep review runs queued/failed without worker availability.
-
-### 7. Page/section persistence integration
-
-- [ ] RED: Add integration tests proving worker extraction output persists to `document_page` and `document_section` without losing run/document linkage.
-- [ ] GREEN: Implement API-side repository/import path for extraction results.
-- [ ] TRIANGULATE: Cover uncertain page/chapter cases and ensure uncertainty propagates to downstream evidence candidates.
-- [ ] REFACTOR: Normalize `document_section` with `section_type = 'chapter'` rather than separate duplicated tables unless implementation proves otherwise.
-- [ ] Verify: extracted pages can be queried by `review_run_id` and sections by type/start page.
-- [ ] Rollback: delete run-specific pages/sections and rerun extraction.
-
-### 8. Evidence and finding contract validator
-
-- [ ] RED: Add tests that reject valid-status findings without evidence text, page/section provenance or uncertainty, allowed type, producer, confidence/severity, and approved normative source when cited.
-- [ ] GREEN: Implement validator under `apps/api/src/findings/` or shared domain package used before persistence.
-- [ ] TRIANGULATE: Add join persistence through `finding_evidence` for multi-evidence findings such as congruence checks.
-- [ ] REFACTOR: Separate statuses `valid`, `rejected`, `quarantined`, and `partial`; never expose rejected/quarantined as final observations.
-- [ ] Verify: `GET /findings` returns only reviewer-visible valid/partial outputs with linked evidence.
-- [ ] Rollback: validator can be tightened without data loss; invalid findings remain quarantined/rejected.
-
-### 9. Rule engine MVP — writing/style first
-
-- [ ] RED: Add tests for gerunds, muletillas/filler words, long sentences, passive voice placeholder, spelling/grammar placeholder, and exact evidence extraction.
-- [ ] GREEN: Implement rule registry and first deterministic writing/style rules under `services/worker/app/rules/`.
-- [ ] TRIANGULATE: Add rule IDs, severity/confidence defaults, and academic explanation text suitable for reports.
-- [ ] REFACTOR: Keep language-specific rule config in `services/worker/app/rules/config/`.
-- [ ] Verify: every produced writing finding passes evidence validator and links to page/section context.
-- [ ] Rollback: disable individual rule IDs through config.
-
-### 10. Rule engine MVP — GT and APA frameworks
-
-- [ ] RED: Add tests for GT structure/check-unverifiable behavior and APA citation/reference consistency cases.
-- [ ] GREEN: Implement initial GT and APA rule modules under `services/worker/app/rules/gt/` and `services/worker/app/rules/apa/`.
-- [ ] TRIANGULATE: Add `check_result` or audit representation for visual/layout rules that cannot be verified from extraction.
-- [ ] REFACTOR: Ensure visual GT/APA uncertainty never becomes a definitive finding without evidence.
-- [ ] Verify: GT/APA findings include rule provenance and thesis evidence; unverifiable checks are marked incomplete/uncertain.
-- [ ] Rollback: disable GT/APA rule families independently from writing rules.
-
-### 11. Congruence validation framework
-
-- [ ] RED: Add tests requiring evidence from both compared sections for objective/conclusion/recommendation findings.
-- [ ] GREEN: Implement section discovery and comparison scaffolding for problem, objectives, conclusions, and recommendations.
-- [ ] TRIANGULATE: Mark congruence checks incomplete when required sections are missing.
-- [ ] REFACTOR: Keep AI-assisted congruence prompts behind the same structured output validator if used.
-- [ ] Verify: no congruence finding appears with single-sided evidence only.
-- [ ] Rollback: disable congruence module without affecting deterministic style/APA/GT rules.
-
-### 12. Controlled RAG normative sources
-
-- [ ] RED: Add tests for approved-only normative retrieval, reference/thesis separation, missing-source behavior, and structured AI output rejection.
-- [ ] GREEN: Implement normative source ingestion/indexing routes and worker embedding path:
-  - `POST /api/v1/normative-sources`
-  - `POST /api/v1/normative-sources/{source_id}/index`
-  - `normative_source`, `normative_segment`, `embedding_record` writes.
-- [ ] TRIANGULATE: Enforce `embedding_record.source_class = 'normative_segment'` for controlled RAG retrieval.
-- [ ] REFACTOR: Add provider-neutral LLM abstraction for Claude, DeepSeek, and Groq embeddings/LLM calls with model metadata; keep OpenAI out of the recommended implementation path.
-- [ ] TRIANGULATE: Add backend-owned provider/model registry seed data and routing policy metadata inspired by Hermes Desktop patterns, without exposing provider credentials to the Angular app.
-- [ ] Verify: RAG-supported findings link thesis evidence separately from approved normative source/segment IDs.
-- [ ] Rollback: disable RAG queue stage and preserve indexed sources for later reuse.
-
-### 13. Report generation MVP — Markdown
-
-- [ ] RED: Add tests for completed, empty, pending, stale-run, and partial Markdown report scenarios.
-- [ ] GREEN: Implement Markdown generator using only persisted findings/evidence/check results under `apps/api/src/report-artifacts/` or worker report module.
-- [ ] TRIANGULATE: Include document identity, run identity, finding type, evidence, page/chapter or uncertainty, confidence/severity, and provenance.
-- [ ] REFACTOR: Store immutable report artifacts through storage abstraction and `report_artifact` records.
-- [ ] Verify: empty reports state no valid findings and never invent observations.
-- [ ] Rollback: delete generated artifact records/objects; persisted findings remain unchanged.
-
-### 14. Report generation later slices — DOCX and XLSX
-
-- [ ] RED: Add contract tests proving DOCX and XLSX preserve all Markdown-required evidence fields.
-- [ ] GREEN: Implement DOCX generation as a separate review unit after Markdown stabilizes.
-- [ ] GREEN: Implement XLSX matrix generation as another separate review unit after DOCX or independently.
-- [ ] TRIANGULATE: Ensure each XLSX row includes finding type, page/chapter or uncertainty, evidence reference, and provenance.
-- [ ] REFACTOR: Share report view-model creation across Markdown/DOCX/XLSX.
-- [ ] Verify: generated formats are tied to the correct `review_run_id` and never mix runs.
-- [ ] Rollback: disable optional formats while Markdown remains available.
-
-### 15. Agentic RAG later milestone scaffold
-
-- [ ] RED: Add tests proving agentic outputs cannot bypass the evidence validator and unsupported outputs are rejected/quarantined.
-- [ ] GREEN: Add disabled-by-default agent module interfaces for APA, GT, writing/style, methodology, congruence, report synthesizer, and evidence auditor.
-- [ ] TRIANGULATE: Ensure agents operate only on structured document pages/sections/evidence and approved normative records.
-- [ ] REFACTOR: Keep authoritative validation outside the agent: `agent plan → tool retrieval → proposed finding → evidence validator → persistence`.
-- [ ] Verify: setting agentic feature flag off leaves controlled RAG behavior unchanged.
-- [ ] Rollback: remove/disable agentic feature flag and module registrations.
-
-### 16. Final verification and documentation
-
-- [ ] RED: Add end-to-end failing test for upload → review run → extraction stub → validation → Markdown report.
-- [ ] GREEN: Wire the minimal happy path across API, queue, worker, DB, and storage.
-- [ ] TRIANGULATE: Add failure-path E2E coverage for unsupported upload, extraction failure, RAG rejection, and partial report labeling.
-- [ ] REFACTOR: Update `README.md`, `openspec/README.md`, and `docs/` with setup, test, and local service commands.
-- [ ] Verify: root verification command, API tests, worker tests, and any frontend smoke tests pass from a clean checkout.
+- [ ] RED: Add or update an end-to-end contract test for upload → review run → persisted findings → Markdown report artifact.
+- [ ] GREEN: Wire any missing minimal path needed for that contract without expanding into DOCX/XLSX or agentic work.
+- [ ] TRIANGULATE: Add failure-path coverage for unsupported upload, extraction/review failure, and partial report labeling.
+- [ ] REFACTOR: Update `README.md`, `openspec/README.md`, or `docs/` only where the report workflow changes operator/user commands.
+- [ ] Verify: root verification command, API tests, worker tests, and web tests if UI changed.
 - [ ] Rollback: keep migration rollback and storage cleanup instructions documented.
+
+## Future Work Not In This Slice
+
+- Congruence validation framework.
+- Normative-source admin/indexing routes beyond the already implemented retrieval foundation.
+- DOCX and XLSX report generation.
+- Agentic RAG module scaffold.
+- Deployment-specific DeepSeek smoke with a real `DEEPSEEK_API_KEY`.
 
 ## Suggested PR Chain
 
-1. **PR 1 — Scaffold and tests**: Work unit 1 only.
-2. **PR 2 — API contract and DB schema**: Work units 2–3.
-3. **PR 3 — Upload, storage, and review lifecycle**: Work units 4–5.
-4. **PR 4 — Worker extraction and persistence**: Work units 6–7.
-5. **PR 5 — Evidence contract and deterministic rules**: Work units 8–11, split further if over budget.
-6. **PR 6 — Controlled RAG**: Work unit 12.
-7. **PR 7 — Markdown report MVP**: Work unit 13.
-8. **PR 8+ — Optional reports, provider admin, and agentic RAG milestone**: Work units 14–15 plus a later provider/model routing admin slice if needed.
-9. **Final verification PR or slice**: Work unit 16 when full happy path exists.
+1. **PR 1 — Markdown report MVP**: R1 only.
+2. **PR 2 — UI download polish**: R2 only if needed.
+3. **PR 3 — Final MVP verification/docs**: R3 after R1/R2.
+4. **Later PRs**: congruence, source-admin routes, DOCX/XLSX, and agentic scaffold as separate product slices.

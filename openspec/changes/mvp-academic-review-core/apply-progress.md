@@ -1,5 +1,14 @@
 # Apply Progress — MVP Academic Review Core
 
+## 2026-09-13 Reconciliation Update
+
+The original pending Work Units 6–12 were reconciled against the current `main` state after `precise-thesis-review-pipeline` was archived and merged. They should not be applied directly from the historical task list.
+
+- Work Units 6–7 are superseded by the completed `document-structure-extraction` canonical spec and implementation.
+- Work Units 9–10 are superseded by `deterministic-writing-rules`, `reglamento-structure-rules`, `apa6-citation-rules`, and `normative-source-governance`.
+- Work Unit 12 is partially superseded by `reviewer-workflow-board` and `llm-provider-admin`; source-management routes remain possible future work, not the next slice.
+- The next executable slice is now **R1 — Markdown report MVP** in `tasks.md`.
+
 ## Workload / PR Boundary
 
 - Completed slice: **PR 1 — Scaffold and tests** / Work Unit 1 only.

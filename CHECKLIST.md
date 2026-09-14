@@ -6,10 +6,10 @@ Last updated: 2026-09-13
 
 ## Current next action
 
-- [ ] Choose the next product/workflow slice for PG1.
-  - Option A: run an optional real DeepSeek triage smoke with an authorized `DEEPSEEK_API_KEY`.
-  - Option B: reconcile the legacy `mvp-academic-review-core` backlog before using it as the driving plan.
-  - Option C: start a new focused feature from the current product priorities.
+- [ ] Implement `mvp-academic-review-core` R1: Markdown report MVP.
+  - Reconciliation is complete: stale historical Work Units 6–12 were retired or deferred in `openspec/changes/mvp-academic-review-core/tasks.md`.
+  - Keep the next slice Markdown-only; DOCX/XLSX, agentic RAG, congruence validation, and source-admin routes remain later work.
+  - Optional DeepSeek smoke with an authorized `DEEPSEEK_API_KEY` remains separate from this next slice.
 
 ## Recently completed
 
@@ -48,7 +48,7 @@ Last updated: 2026-09-13
 | Change | Status | Next |
 | --- | --- | --- |
 | `precise-thesis-review-pipeline` | Archived and merged into `main` | Optional real DeepSeek smoke only if credentials are authorized |
-| `mvp-academic-review-core` | Active legacy backlog; Work Units 1–5 complete, 6–16 pending | Reconcile overlap before using it as the driving backlog |
+| `mvp-academic-review-core` | Active reconciled backlog; historical Work Units 1–12 completed/superseded/deferred | Implement R1 Markdown report MVP |
 
 ## Root legacy checklist reconciliation
 
